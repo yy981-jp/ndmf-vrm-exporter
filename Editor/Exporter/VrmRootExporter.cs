@@ -149,6 +149,7 @@ namespace com.github.hkrn
             }
 
             var immutablePbColliders = ImmutableList.CreateRange(pbColliders);
+            var colliderGroupIDs = new Dictionary<VRCPhysBone, gltf.ObjectID>();
             foreach (var (transform, _) in _transformNodeIDs)
             {
                 if (!transform.gameObject.activeInHierarchy ||
@@ -161,11 +162,14 @@ namespace com.github.hkrn
                 var bones = transform.GetComponents<VRCPhysBone>();
                 foreach (var bone in bones!)
                 {
-                    ConvertColliderGroup(bone, immutablePbColliders, ref colliderGroups);
+                    var colliderGroupID = ConvertColliderGroup(bone, immutablePbColliders, ref colliderGroups);
+                    if (colliderGroupID.HasValue)
+                    {
+                        colliderGroupIDs.Add(bone, colliderGroupID.Value);
+                    }
                 }
             }
 
-            var immutableColliderGroups = ImmutableList.CreateRange(colliderGroups);
             foreach (var (transform, _) in _transformNodeIDs)
             {
                 if (!transform.gameObject.activeInHierarchy ||
@@ -178,7 +182,7 @@ namespace com.github.hkrn
                 var bones = transform.GetComponents<VRCPhysBone>();
                 foreach (var bone in bones!)
                 {
-                    ConvertSpringBone(bone, component, immutablePbColliders, immutableColliderGroups, ref springs);
+                    ConvertSpringBone(bone, component, immutablePbColliders, colliderGroupIDs, ref springs);
                 }
             }
 #endif // NVE_HAS_VRCHAT_AVATAR_SDK
@@ -1493,7 +1497,7 @@ namespace com.github.hkrn
             pbColliders.Add(collider);
         }
 
-        private static void ConvertColliderGroup(VRCPhysBone pb,
+        private static gltf.ObjectID? ConvertColliderGroup(VRCPhysBone pb,
             IImmutableList<VRCPhysBoneColliderBase> pbColliders,
             ref IList<vrm.sb.ColliderGroup> colliderGroups)
         {
@@ -1503,13 +1507,24 @@ namespace com.github.hkrn
                 where index != -1
                 select new gltf.ObjectID((uint)index)).ToList();
             if (colliders.Count <= 0)
-                return;
+                return null;
+
+            var colliderGroupID = new gltf.ObjectID((uint)colliderGroups.Count);
             var colliderGroup = new vrm.sb.ColliderGroup
             {
                 Name = new gltf.UnicodeString(pb.name),
                 Colliders = colliders,
             };
             colliderGroups.Add(colliderGroup);
+            return colliderGroupID;
+        }
+
+        internal static IList<gltf.ObjectID>? GetSpringBoneColliderGroups(VRCPhysBone pb,
+            IReadOnlyDictionary<VRCPhysBone, gltf.ObjectID> colliderGroupIDs)
+        {
+            return colliderGroupIDs.TryGetValue(pb, out var colliderGroupID)
+                ? new List<gltf.ObjectID> { colliderGroupID }
+                : null;
         }
 
         private HashSet<Transform> GetNestedPhysBoneRoots(VRCPhysBone pb)
@@ -1662,7 +1677,7 @@ namespace com.github.hkrn
 
         private void ConvertSpringBone(VRCPhysBone pb, NdmfVrmExporterComponent component,
             IImmutableList<VRCPhysBoneColliderBase> pbColliders,
-            IImmutableList<vrm.sb.ColliderGroup> colliderGroups, ref IList<vrm.sb.Spring> springs)
+            IReadOnlyDictionary<VRCPhysBone, gltf.ObjectID> colliderGroupIDs, ref IList<vrm.sb.Spring> springs)
         {
             var rootTransform = pb.GetRootTransform();
             var nestedRoots = GetNestedPhysBoneRoots(pb);
@@ -1678,7 +1693,7 @@ namespace com.github.hkrn
             foreach (var transforms in newChains)
             {
                 var name = hasChainBranch ? $"{pb.name}.{index}" : pb.name;
-                ConvertSpringBoneInner(pb, component, name, transforms, pbColliders, colliderGroups, ref springs);
+                ConvertSpringBoneInner(pb, component, name, transforms, pbColliders, colliderGroupIDs, ref springs);
                 index++;
             }
         }
@@ -1686,7 +1701,7 @@ namespace com.github.hkrn
         private void ConvertSpringBoneInner(VRCPhysBone pb, NdmfVrmExporterComponent component, string name,
             IImmutableList<Transform> transforms,
             IImmutableList<VRCPhysBoneColliderBase> pbColliders,
-            IImmutableList<vrm.sb.ColliderGroup> colliderGroups, ref IList<vrm.sb.Spring> springs)
+            IReadOnlyDictionary<VRCPhysBone, gltf.ObjectID> colliderGroupIDs, ref IList<vrm.sb.Spring> springs)
         {
             var rootTransform = pb.GetRootTransform();
             gltf.ObjectID? centerNode = null;
@@ -1751,23 +1766,7 @@ namespace com.github.hkrn
                     return joint;
                 })
                 .ToList();
-            var colliders = (from pbCollider in pb.colliders
-                select pbColliders.IndexOf(pbCollider)
-                into index
-                where index != -1
-                select new gltf.ObjectID((uint)index)).ToList();
-
-            var groupID = 0;
-            var newColliderGroups = new HashSet<gltf.ObjectID>();
-            foreach (var group in colliderGroups)
-            {
-                if (colliders.Any(id => group.Colliders.IndexOf(id) != -1))
-                {
-                    newColliderGroups.Add(new gltf.ObjectID((uint)groupID));
-                }
-
-                groupID++;
-            }
+            var newColliderGroups = GetSpringBoneColliderGroups(pb, colliderGroupIDs);
 
             var spring = new vrm.sb.Spring
             {
