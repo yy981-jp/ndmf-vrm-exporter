@@ -183,6 +183,8 @@ namespace com.github.hkrn
             }
 #endif // NVE_HAS_VRCHAT_AVATAR_SDK
 
+            ValidateUniqueSpringBoneJoints(springs);
+
             var vrmSpringBone = new vrm.sb.SpringBone
             {
                 Colliders = colliders.Count > 0 ? colliders : null,
@@ -1510,27 +1512,101 @@ namespace com.github.hkrn
             colliderGroups.Add(colliderGroup);
         }
 
-        private static bool RetrieveSpringBoneChainTransforms(Transform transform, ref List<List<Transform>> chains)
+        private HashSet<Transform> GetIgnoredOtherPhysBoneRoots(VRCPhysBone pb)
         {
-            var numChildren = 0;
-            for (var i = 0; i < transform.childCount; i++)
+            var ignoredRoots = new HashSet<Transform>();
+#if NVE_HAS_IGNORE_OTHER_PHYS_BONES
+            if (!pb.ignoreOtherPhysBones)
             {
-                var child = transform.GetChild(i);
-                if (!child || child is null)
+                return ignoredRoots;
+            }
+
+            var rootTransform = pb.GetRootTransform();
+            foreach (var otherPhysBone in _gameObject.GetComponentsInChildren<VRCPhysBone>(true))
+            {
+                if (otherPhysBone == pb || !otherPhysBone.gameObject.activeInHierarchy)
                 {
                     continue;
                 }
 
-                chains.Last().Add(child);
-                if (RetrieveSpringBoneChainTransforms(child, ref chains))
+                var otherRoot = otherPhysBone.GetRootTransform();
+                if (!otherRoot || otherRoot == rootTransform || !otherRoot.IsChildOf(rootTransform))
                 {
-                    chains.Add(new List<Transform>());
+                    continue;
                 }
 
-                numChildren++;
+                ignoredRoots.Add(otherRoot);
+            }
+#endif // NVE_HAS_IGNORE_OTHER_PHYS_BONES
+            return ignoredRoots;
+        }
+
+        private static List<Transform> GetSpringBoneChildren(Transform transform, ISet<Transform> ignoredRoots)
+        {
+            var children = new List<Transform>();
+            for (var i = 0; i < transform.childCount; i++)
+            {
+                var child = transform.GetChild(i);
+                if (!child || child is null || ignoredRoots.Contains(child))
+                {
+                    continue;
+                }
+
+                children.Add(child);
             }
 
-            return numChildren > 0;
+            return children;
+        }
+
+        private static void RetrieveSpringBoneChainTransforms(Transform transform,
+            ISet<Transform> ignoredRoots, VRCPhysBoneBase.MultiChildType multiChildType,
+            List<Transform> currentChain, IList<List<Transform>> chains)
+        {
+            var children = GetSpringBoneChildren(transform, ignoredRoots);
+            if (children.Count == 0)
+            {
+                return;
+            }
+
+            if (children.Count == 1)
+            {
+                var child = children[0];
+                currentChain.Add(child);
+                RetrieveSpringBoneChainTransforms(child, ignoredRoots, multiChildType, currentChain, chains);
+                return;
+            }
+
+            if (multiChildType == VRCPhysBoneBase.MultiChildType.Ignore)
+            {
+                // Ignore the branch source itself and start an independent chain at each child.
+                if (currentChain.Count > 0 && currentChain[currentChain.Count - 1] == transform)
+                {
+                    currentChain.RemoveAt(currentChain.Count - 1);
+                }
+
+                foreach (var child in children)
+                {
+                    var branchChain = new List<Transform> { child };
+                    chains.Add(branchChain);
+                    RetrieveSpringBoneChainTransforms(child, ignoredRoots, multiChildType, branchChain, chains);
+                }
+
+                return;
+            }
+
+            // First/Average keep the branch source in the first chain. Every sibling starts
+            // its own chain so a child can never be mistaken for the next joint of its sibling.
+            var firstChild = children[0];
+            currentChain.Add(firstChild);
+            RetrieveSpringBoneChainTransforms(firstChild, ignoredRoots, multiChildType, currentChain, chains);
+
+            for (var i = 1; i < children.Count; i++)
+            {
+                var child = children[i];
+                var branchChain = new List<Transform> { child };
+                chains.Add(branchChain);
+                RetrieveSpringBoneChainTransforms(child, ignoredRoots, multiChildType, branchChain, chains);
+            }
         }
 
         private static bool CalcTransformDepth(Transform? transform, bool incrementDepth, ref int depth)
@@ -1593,42 +1669,20 @@ namespace com.github.hkrn
             IImmutableList<vrm.sb.ColliderGroup> colliderGroups, ref IList<vrm.sb.Spring> springs)
         {
             var rootTransform = pb.GetRootTransform();
-            var chains = new List<List<Transform>>
-            {
-                new() { rootTransform }
-            };
-            RetrieveSpringBoneChainTransforms(rootTransform, ref chains);
+            var ignoredRoots = GetIgnoredOtherPhysBoneRoots(pb);
+            var rootChain = new List<Transform> { rootTransform };
+            var chains = new List<List<Transform>> { rootChain };
+
+            RetrieveSpringBoneChainTransforms(rootTransform, ignoredRoots, pb.multiChildType, rootChain, chains);
+
             var newChains = chains.Where(chain => chain.Count != 0).Select(ImmutableList.CreateRange)
                 .ToImmutableList();
             var hasChainBranch = newChains.Count > 1;
             var index = 1;
             foreach (var transforms in newChains)
             {
-                switch (hasChainBranch)
-                {
-                    case true when pb.multiChildType == VRCPhysBoneBase.MultiChildType.Ignore && index == 1:
-                    {
-                        var name = $"{pb.name}.{index}";
-                        ConvertSpringBoneInner(pb, component, name, transforms.Skip(1).ToImmutableList(),
-                            pbColliders, colliderGroups, ref springs);
-                        break;
-                    }
-                    case true:
-                    {
-                        var name = $"{pb.name}.{index}";
-                        ConvertSpringBoneInner(pb, component, name, transforms, pbColliders, colliderGroups,
-                            ref springs);
-                        break;
-                    }
-                    default:
-                    {
-                        var name = pb.name;
-                        ConvertSpringBoneInner(pb, component, name, transforms, pbColliders, colliderGroups,
-                            ref springs);
-                        break;
-                    }
-                }
-
+                var name = hasChainBranch ? $"{pb.name}.{index}" : pb.name;
+                ConvertSpringBoneInner(pb, component, name, transforms, pbColliders, colliderGroups, ref springs);
                 index++;
             }
         }
@@ -1786,6 +1840,29 @@ namespace com.github.hkrn
             return curve is { length: > 0 } ? curve.Evaluate(depthRatio.Value) * value : value;
         }
 #endif // NVE_HAS_VRCHAT_AVATAR_SDK
+
+        private static void ValidateUniqueSpringBoneJoints(IList<vrm.sb.Spring> springs)
+        {
+            var jointOwners = new Dictionary<uint, string>();
+            foreach (var spring in springs)
+            {
+                var springName = spring.Name.ToString();
+                foreach (var joint in spring.Joints)
+                {
+                    var nodeID = joint.Node.ID;
+                    if (jointOwners.TryGetValue(nodeID, out var previousSpringName))
+                    {
+                        throw new InvalidOperationException(
+                            $"Invalid VRM SpringBone: glTF node {nodeID} is assigned to multiple SpringChains " +
+                            $"('{previousSpringName}' and '{springName}'). VRM 1.0 forbids overlapping SpringChains. " +
+                            "Check overlapping VRCPhysBone components. On VRChat SDK 3.8+, enable " +
+                            "'Ignore Other Phys Bones' on the parent PhysBone when appropriate.");
+                    }
+
+                    jointOwners.Add(nodeID, springName);
+                }
+            }
+        }
 
         private static bool ToBool(VrmUsagePermission value)
         {

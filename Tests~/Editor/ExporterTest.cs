@@ -2196,6 +2196,143 @@ namespace com.github.hkrn
                 })));
             Assert.That(extensionUsed, Is.Empty);
         }
+        [TestCase(VRCPhysBoneBase.MultiChildType.Ignore)]
+        [TestCase(VRCPhysBoneBase.MultiChildType.First)]
+        [TestCase(VRCPhysBoneBase.MultiChildType.Average)]
+        public void ExportPhysBoneDirectTerminalBranches(VRCPhysBoneBase.MultiChildType multiChildType)
+        {
+            var root = CreateRootGameObject();
+            root.AddComponent<NdmfVrmExporterComponent>();
+            var assetSaver = new NullAssetSaver();
+            var nodes = new Dictionary<Transform, gltf.ObjectID>();
+            var rootNode = new GameObject
+            {
+                name = "Root",
+                transform = { parent = root.transform }
+            };
+            var physBone = rootNode.AddComponent<VRCPhysBone>();
+            physBone.multiChildType = multiChildType;
+            nodes.Add(rootNode.transform, new gltf.ObjectID(42));
+
+            var firstChild = new GameObject { transform = { parent = rootNode.transform } };
+            var secondChild = new GameObject { transform = { parent = rootNode.transform } };
+            nodes.Add(firstChild.transform, new gltf.ObjectID(43));
+            nodes.Add(secondChild.transform, new gltf.ObjectID(44));
+
+            var allMorphTargets = new Dictionary<string, (gltf.ObjectID, int)>();
+            var extensionUsed = new HashSet<string>();
+            var exporter = new VrmRootExporter(root, assetSaver, nodes, allMorphTargets, extensionUsed);
+            var sb = exporter.ExportSpringBone();
+
+            Assert.That(sb.Springs, Is.Not.Null);
+            Assert.That(sb.Springs.Count, Is.EqualTo(2));
+            var jointIDs = new HashSet<uint>();
+            foreach (var spring in sb.Springs)
+            {
+                foreach (var joint in spring.Joints)
+                {
+                    Assert.That(jointIDs.Add(joint.Node.ID), Is.True,
+                        "A glTF node must not be included in more than one SpringChain.");
+                }
+            }
+
+            var expectedJointIDs = multiChildType == VRCPhysBoneBase.MultiChildType.Ignore
+                ? new[] { 43u, 44u }
+                : new[] { 42u, 43u, 44u };
+            Assert.That(jointIDs.SetEquals(expectedJointIDs), Is.True);
+        }
+
+        [TestCase(VRCPhysBoneBase.MultiChildType.Ignore)]
+        [TestCase(VRCPhysBoneBase.MultiChildType.First)]
+        [TestCase(VRCPhysBoneBase.MultiChildType.Average)]
+        public void ExportPhysBoneBranchBelowRoot(VRCPhysBoneBase.MultiChildType multiChildType)
+        {
+            var root = CreateRootGameObject();
+            root.AddComponent<NdmfVrmExporterComponent>();
+            var assetSaver = new NullAssetSaver();
+            var nodes = new Dictionary<Transform, gltf.ObjectID>();
+
+            var rootNode = new GameObject { transform = { parent = root.transform } };
+            var physBone = rootNode.AddComponent<VRCPhysBone>();
+            physBone.multiChildType = multiChildType;
+            nodes.Add(rootNode.transform, new gltf.ObjectID(42));
+
+            var branchNode = new GameObject { transform = { parent = rootNode.transform } };
+            var firstChild = new GameObject { transform = { parent = branchNode.transform } };
+            var firstTip = new GameObject { transform = { parent = firstChild.transform } };
+            var secondChild = new GameObject { transform = { parent = branchNode.transform } };
+            var secondTip = new GameObject { transform = { parent = secondChild.transform } };
+            nodes.Add(branchNode.transform, new gltf.ObjectID(43));
+            nodes.Add(firstChild.transform, new gltf.ObjectID(44));
+            nodes.Add(firstTip.transform, new gltf.ObjectID(45));
+            nodes.Add(secondChild.transform, new gltf.ObjectID(46));
+            nodes.Add(secondTip.transform, new gltf.ObjectID(47));
+
+            var allMorphTargets = new Dictionary<string, (gltf.ObjectID, int)>();
+            var extensionUsed = new HashSet<string>();
+            var exporter = new VrmRootExporter(root, assetSaver, nodes, allMorphTargets, extensionUsed);
+            var sb = exporter.ExportSpringBone();
+
+            Assert.That(sb.Springs, Is.Not.Null);
+            var jointIDs = new HashSet<uint>();
+            foreach (var spring in sb.Springs)
+            {
+                foreach (var joint in spring.Joints)
+                {
+                    Assert.That(jointIDs.Add(joint.Node.ID), Is.True,
+                        "A glTF node must not be included in more than one SpringChain.");
+                }
+            }
+
+            var expectedJointIDs = multiChildType == VRCPhysBoneBase.MultiChildType.Ignore
+                ? new[] { 42u, 44u, 45u, 46u, 47u }
+                : new[] { 42u, 43u, 44u, 45u, 46u, 47u };
+            Assert.That(jointIDs.SetEquals(expectedJointIDs), Is.True);
+        }
+
+#if NVE_HAS_IGNORE_OTHER_PHYS_BONES
+        [Test]
+        public void ExportPhysBoneHonorsIgnoreOtherPhysBonesAndRejectsOverlaps()
+        {
+            var root = CreateRootGameObject();
+            root.AddComponent<NdmfVrmExporterComponent>();
+            var assetSaver = new NullAssetSaver();
+            var nodes = new Dictionary<Transform, gltf.ObjectID>();
+
+            var parentRoot = new GameObject { transform = { parent = root.transform } };
+            var parentPhysBone = parentRoot.AddComponent<VRCPhysBone>();
+            parentPhysBone.ignoreOtherPhysBones = true;
+            nodes.Add(parentRoot.transform, new gltf.ObjectID(42));
+
+            var parentTip = new GameObject { transform = { parent = parentRoot.transform } };
+            nodes.Add(parentTip.transform, new gltf.ObjectID(43));
+            var nestedRoot = new GameObject { transform = { parent = parentTip.transform } };
+            nestedRoot.AddComponent<VRCPhysBone>();
+            nodes.Add(nestedRoot.transform, new gltf.ObjectID(44));
+            var nestedTip = new GameObject { transform = { parent = nestedRoot.transform } };
+            nodes.Add(nestedTip.transform, new gltf.ObjectID(45));
+
+            var allMorphTargets = new Dictionary<string, (gltf.ObjectID, int)>();
+            var extensionUsed = new HashSet<string>();
+            var exporter = new VrmRootExporter(root, assetSaver, nodes, allMorphTargets, extensionUsed);
+            var sb = exporter.ExportSpringBone();
+
+            var jointIDs = new HashSet<uint>();
+            foreach (var spring in sb.Springs)
+            {
+                foreach (var joint in spring.Joints)
+                {
+                    Assert.That(jointIDs.Add(joint.Node.ID), Is.True);
+                }
+            }
+
+            Assert.That(jointIDs.SetEquals(new[] { 42u, 43u, 44u, 45u }), Is.True);
+
+            parentPhysBone.ignoreOtherPhysBones = false;
+            Assert.Throws<InvalidOperationException>(() => exporter.ExportSpringBone());
+        }
+#endif // NVE_HAS_IGNORE_OTHER_PHYS_BONES
+
 #endif // NVE_HAS_VRCHAT_AVATAR_SDK
 
 #if NVE_HAS_LILTOON

@@ -44,6 +44,11 @@
             "define": "NVE_HAS_VRCHAT_AVATAR_SDK"
         },
         {
+            "name": "com.vrchat.avatars",
+            "expression": "3.8",
+            "define": "NVE_HAS_IGNORE_OTHER_PHYS_BONES"
+        },
+        {
             "name": "jp.lilxyzw.liltoon",
             "expression": "1.8",
             "define": "NVE_HAS_LILTOON"
