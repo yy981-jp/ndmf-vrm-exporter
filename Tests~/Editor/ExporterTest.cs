@@ -2291,8 +2291,9 @@ namespace com.github.hkrn
         }
 
 #if NVE_HAS_IGNORE_OTHER_PHYS_BONES
-        [Test]
-        public void ExportPhysBoneHonorsIgnoreOtherPhysBonesAndRejectsOverlaps()
+        [TestCase(true)]
+        [TestCase(false)]
+        public void ExportPhysBoneSeparatesNestedPhysBones(bool ignoreOtherPhysBones)
         {
             var root = CreateRootGameObject();
             root.AddComponent<NdmfVrmExporterComponent>();
@@ -2301,7 +2302,7 @@ namespace com.github.hkrn
 
             var parentRoot = new GameObject { transform = { parent = root.transform } };
             var parentPhysBone = parentRoot.AddComponent<VRCPhysBone>();
-            parentPhysBone.ignoreOtherPhysBones = true;
+            parentPhysBone.ignoreOtherPhysBones = ignoreOtherPhysBones;
             nodes.Add(parentRoot.transform, new gltf.ObjectID(42));
 
             var parentTip = new GameObject { transform = { parent = parentRoot.transform } };
@@ -2317,19 +2318,19 @@ namespace com.github.hkrn
             var exporter = new VrmRootExporter(root, assetSaver, nodes, allMorphTargets, extensionUsed);
             var sb = exporter.ExportSpringBone();
 
+            Assert.That(sb.Springs, Is.Not.Null);
+            Assert.That(sb.Springs.Count, Is.EqualTo(2));
             var jointIDs = new HashSet<uint>();
             foreach (var spring in sb.Springs)
             {
                 foreach (var joint in spring.Joints)
                 {
-                    Assert.That(jointIDs.Add(joint.Node.ID), Is.True);
+                    Assert.That(jointIDs.Add(joint.Node.ID), Is.True,
+                        "A glTF node must not be included in more than one SpringChain.");
                 }
             }
 
             Assert.That(jointIDs.SetEquals(new[] { 42u, 43u, 44u, 45u }), Is.True);
-
-            parentPhysBone.ignoreOtherPhysBones = false;
-            Assert.Throws<InvalidOperationException>(() => exporter.ExportSpringBone());
         }
 #endif // NVE_HAS_IGNORE_OTHER_PHYS_BONES
 
