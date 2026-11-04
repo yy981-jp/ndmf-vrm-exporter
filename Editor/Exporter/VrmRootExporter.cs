@@ -1675,10 +1675,134 @@ namespace com.github.hkrn
             return new DepthRatio(upperDepth, lowerDepth);
         }
 
+        internal readonly struct SpringBoneForceParameters
+        {
+            public SpringBoneForceParameters(
+                float stiffness,
+                float dragForce,
+                float gravityPower,
+                System.Numerics.Vector3 gravityDir)
+            {
+                Stiffness = stiffness;
+                DragForce = dragForce;
+                GravityPower = gravityPower;
+                GravityDir = gravityDir;
+            }
+
+            public float Stiffness { get; }
+            public float DragForce { get; }
+            public float GravityPower { get; }
+            public System.Numerics.Vector3 GravityDir { get; }
+        }
+
+        internal static SpringBoneForceParameters ConvertSpringBoneForces(
+            VRCPhysBoneBase.Version version,
+            VRCPhysBoneBase.IntegrationType integrationType,
+            float pull,
+            float spring,
+            float stiffness,
+            float gravity,
+            float gravityFalloff)
+        {
+            pull = Mathf.Clamp01(pull);
+            spring = Mathf.Clamp01(spring);
+            stiffness = Mathf.Clamp01(stiffness);
+            gravity = Mathf.Clamp(gravity, -1.0f, 1.0f);
+            gravityFalloff = Mathf.Clamp01(gravityFalloff);
+
+            const float StiffnessForceScale = 4.0f;
+            const float GravityPowerScale = 20.0f;
+
+            float stiffnessForce;
+            float dragForce;
+            float gravityPower;
+
+            switch (version)
+            {
+                case VRCPhysBoneBase.Version.Version_1_0:
+                {
+                    if (integrationType == VRCPhysBoneBase.IntegrationType.Simplified)
+                    {
+                        // Version 1.0 Simplified uses Pull to restore the rest pose
+                        // and Spring to control wobble. This is an empirical VRM mapping.
+                        stiffnessForce = pull * (1.0f - spring) * StiffnessForceScale;
+                        dragForce = 1.0f - pull * spring;
+                    }
+                    else
+                    {
+                        // In Advanced mode, Momentum (spring) and the legacy
+                        // Stiffness value both help preserve the previous orientation.
+                        stiffnessForce = pull * StiffnessForceScale;
+                        dragForce = 1.0f - Mathf.Clamp01(spring + stiffness);
+                    }
+
+                    // PhysBone 1.0 Gravity is a force, not a rest-pose ratio.
+                    gravityPower = Mathf.Abs(gravity) * GravityPowerScale * (1.0f - gravityFalloff);
+                    break;
+                }
+                case VRCPhysBoneBase.Version.Version_1_1:
+                {
+                    // Version 1.1 Gravity is a ratio. Approximate its rest direction
+                    // by blending the rest-pose restoring force and world gravity.
+                    // Gravity Falloff is baked as a static reduction because VRM 1.0
+                    // has no angle-dependent Gravity Falloff parameter.
+                    var gravityRatio = Mathf.Abs(gravity) * (1.0f - gravityFalloff);
+                    stiffnessForce = pull * (1.0f - gravityRatio) * StiffnessForceScale;
+                    gravityPower = pull * gravityRatio * StiffnessForceScale;
+
+                    if (integrationType == VRCPhysBoneBase.IntegrationType.Simplified)
+                    {
+                        dragForce = 1.0f - pull * spring;
+                    }
+                    else
+                    {
+                        dragForce = 1.0f - Mathf.Clamp01(spring + stiffness);
+                    }
+
+                    break;
+                }
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(version), version, "Unsupported PhysBone version");
+            }
+
+            var gravityDir = gravity < 0.0f
+                ? System.Numerics.Vector3.UnitY
+                : -System.Numerics.Vector3.UnitY;
+
+            return new SpringBoneForceParameters(
+                Mathf.Max(0.0f, stiffnessForce),
+                Mathf.Clamp01(dragForce),
+                Mathf.Max(0.0f, gravityPower),
+                gravityDir
+            );
+        }
+
         private void ConvertSpringBone(VRCPhysBone pb, NdmfVrmExporterComponent component,
             IReadOnlyDictionary<VRCPhysBone, gltf.ObjectID> colliderGroupIDs, ref IList<vrm.sb.Spring> springs)
         {
             var rootTransform = pb.GetRootTransform();
+            var supportsWorldImmobile = pb.immobileType == VRCPhysBoneBase.ImmobileType.World
+                && Mathf.Approximately(pb.immobile, 1.0f)
+                && pb.immobileCurve is not { length: > 0 };
+            if ((pb.immobile > 0.0f || pb.immobileCurve is { length: > 0 }) && !supportsWorldImmobile)
+            {
+                Debug.LogWarning(
+                    $"PhysBone '{pb.name}': partial or All Motion Immobile cannot be represented exactly in VRM 1.0; it was omitted.");
+            }
+
+            if (pb.gravityFalloff > 0.0f || pb.gravityFalloffCurve is { length: > 0 })
+            {
+                Debug.LogWarning(
+                    $"PhysBone '{pb.name}': Gravity Falloff was baked as a static per-joint gravity reduction. " +
+                    "VRM 1.0 cannot reproduce its angle-dependent behavior.");
+            }
+
+            if (pb.version == VRCPhysBoneBase.Version.Version_1_1)
+            {
+                Debug.LogWarning(
+                    $"PhysBone '{pb.name}': Version 1.1 gravity was approximated as a VRM 1.0 rest-direction force blend.");
+            }
+
             var nestedRoots = GetNestedPhysBoneRoots(pb);
             var rootChain = new List<Transform> { rootTransform };
             var chains = new List<List<Transform>> { rootChain };
@@ -1703,8 +1827,10 @@ namespace com.github.hkrn
         {
             var rootTransform = pb.GetRootTransform();
             gltf.ObjectID? centerNode = null;
-            if (pb.immobileType == VRCPhysBoneBase.ImmobileType.World && Mathf.Approximately(pb.immobile, 1.0f) &&
-                pb.immobileCurve is not { length: > 0 })
+            var hasFullWorldImmobile = pb.immobileType == VRCPhysBoneBase.ImmobileType.World
+                && Mathf.Approximately(pb.immobile, 1.0f)
+                && pb.immobileCurve is not { length: > 0 };
+            if (hasFullWorldImmobile)
             {
                 var animator = _gameObject.GetComponent<Animator>();
                 centerNode = GetRequiredHumanBoneNodeID(animator, HumanBodyBones.Hips);
@@ -1721,31 +1847,29 @@ namespace com.github.hkrn
 
                     var depthRatio = FindTransformDepth(transform, rootTransform);
                     var gravity = EvaluateCurve(pb.gravityCurve, pb.gravity, depthRatio);
+                    var falloff = EvaluateCurve(pb.gravityFalloffCurve, pb.gravityFalloff, depthRatio);
                     var stiffness = EvaluateCurve(pb.stiffnessCurve, pb.stiffness, depthRatio);
+                    var spring = EvaluateCurve(pb.springCurve, pb.spring, depthRatio);
                     var hitRadius = EvaluateCurve(pb.radiusCurve, pb.radius, depthRatio);
                     var pull = EvaluateCurve(pb.pullCurve, pb.pull, depthRatio);
-                    var immobile = EvaluateCurve(pb.immobileCurve, pb.immobile, depthRatio) * 0.5f;
-                    float stiffnessFactor, pullFactor;
-                    if (pb.limitType != VRCPhysBoneBase.LimitType.None && !centerNode.HasValue)
-                    {
-                        var maxAngleX = EvaluateCurve(pb.maxAngleXCurve, pb.maxAngleX, depthRatio);
-                        stiffnessFactor = maxAngleX > 0.0f ? 1.0f / Mathf.Clamp01(maxAngleX / 180.0f) : 0.0f;
-                        pullFactor = stiffnessFactor * 0.5f;
-                    }
-                    else
-                    {
-                        stiffnessFactor = 1.0f;
-                        pullFactor = 1.0f;
-                    }
+                    var forces = ConvertSpringBoneForces(
+                        pb.version,
+                        pb.integrationType,
+                        pull,
+                        spring,
+                        stiffness,
+                        gravity,
+                        falloff
+                    );
 
                     var joint = new vrm.sb.Joint
                     {
                         Node = nodeID.Value,
                         HitRadius = hitRadius,
-                        Stiffness = immobile + stiffness * stiffnessFactor,
-                        GravityPower = gravity,
-                        GravityDir = -System.Numerics.Vector3.UnitY,
-                        DragForce = Mathf.Clamp01(immobile + pull * pullFactor),
+                        Stiffness = forces.Stiffness,
+                        GravityPower = forces.GravityPower,
+                        GravityDir = forces.GravityDir,
+                        DragForce = forces.DragForce,
                     };
                     var limit = component.IsSpringBoneLimitEnabled ? ConvertSpringLimit(pb, depthRatio) : null;
                     if (limit == null)
