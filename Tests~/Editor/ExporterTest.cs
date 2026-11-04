@@ -1805,8 +1805,10 @@ namespace com.github.hkrn
                     }
                 };
                 var physBone = rootNode.AddComponent<VRCPhysBone>();
-                physBone.gravity = 0.8f;
-                physBone.stiffness = 0.63f;
+                physBone.version = VRCPhysBoneBase.Version.Version_1_0;
+                physBone.integrationType = VRCPhysBoneBase.IntegrationType.Simplified;
+                physBone.gravity = 0.04f;
+                physBone.spring = 0.5f;
                 physBone.radius = 0.5f;
                 physBone.pull = 0.42f;
                 nodes.Add(rootNode.transform, nodeId);
@@ -1828,8 +1830,8 @@ namespace com.github.hkrn
                             {
                                 Node = nodeId,
                                 HitRadius = 0.5f,
-                                Stiffness = 0.63f,
-                                DragForce = 0.42f,
+                                Stiffness = 0.84f,
+                                DragForce = 0.79f,
                                 GravityPower = 0.8f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             }
@@ -1837,6 +1839,63 @@ namespace com.github.hkrn
                     }
                 })));
             Assert.That(extensionUsed, Is.Empty);
+        }
+
+        [Test]
+        public void ConvertPhysBoneForcesV10Advanced()
+        {
+            var forces = VrmRootExporter.ConvertSpringBoneForces(
+                VRCPhysBoneBase.Version.Version_1_0,
+                VRCPhysBoneBase.IntegrationType.Advanced,
+                0.5f,
+                0.25f,
+                0.4f,
+                -0.5f,
+                0.2f
+            );
+
+            Assert.That(forces.Stiffness, Is.EqualTo(2.0f).Within(0.0001f));
+            Assert.That(forces.DragForce, Is.EqualTo(0.35f).Within(0.0001f));
+            Assert.That(forces.GravityPower, Is.EqualTo(8.0f).Within(0.0001f));
+            Assert.That(forces.GravityDir, Is.EqualTo(System.Numerics.Vector3.UnitY));
+        }
+
+        [Test]
+        public void ConvertPhysBoneForcesV11Simplified()
+        {
+            var forces = VrmRootExporter.ConvertSpringBoneForces(
+                VRCPhysBoneBase.Version.Version_1_1,
+                VRCPhysBoneBase.IntegrationType.Simplified,
+                0.5f,
+                0.25f,
+                0.9f,
+                0.6f,
+                0.0f
+            );
+
+            Assert.That(forces.Stiffness, Is.EqualTo(0.8f).Within(0.0001f));
+            Assert.That(forces.DragForce, Is.EqualTo(0.875f).Within(0.0001f));
+            Assert.That(forces.GravityPower, Is.EqualTo(1.2f).Within(0.0001f));
+            Assert.That(forces.GravityDir, Is.EqualTo(-System.Numerics.Vector3.UnitY));
+        }
+
+        [Test]
+        public void ConvertPhysBoneForcesV11AdvancedWithGravityFalloff()
+        {
+            var forces = VrmRootExporter.ConvertSpringBoneForces(
+                VRCPhysBoneBase.Version.Version_1_1,
+                VRCPhysBoneBase.IntegrationType.Advanced,
+                0.5f,
+                0.25f,
+                0.4f,
+                -0.8f,
+                0.5f
+            );
+
+            Assert.That(forces.Stiffness, Is.EqualTo(0.8f).Within(0.0001f));
+            Assert.That(forces.DragForce, Is.EqualTo(0.35f).Within(0.0001f));
+            Assert.That(forces.GravityPower, Is.EqualTo(0.8f).Within(0.0001f));
+            Assert.That(forces.GravityDir, Is.EqualTo(System.Numerics.Vector3.UnitY));
         }
 
         [Test]
@@ -1883,14 +1942,15 @@ namespace com.github.hkrn
                 };
                 var physBone = rootNode.AddComponent<VRCPhysBone>();
                 var linearCurve = AnimationCurve.Linear(0, 0, 1, 1);
-                physBone.gravity = 1;
+                physBone.version = VRCPhysBoneBase.Version.Version_1_0;
+                physBone.integrationType = VRCPhysBoneBase.IntegrationType.Simplified;
+                physBone.gravity = 0.05f;
                 physBone.gravityCurve = linearCurve;
-                physBone.stiffness = 1;
-                physBone.stiffnessCurve = linearCurve;
                 physBone.radius = 1;
                 physBone.radiusCurve = linearCurve;
-                physBone.pull = 1;
+                physBone.pull = 0.25f;
                 physBone.pullCurve = linearCurve;
+                physBone.spring = 0.0f;
                 nodes.Add(rootNode.transform, nodeId);
                 var parentNode = rootNode;
                 for (var depth = 1u; depth <= 4u; depth++)
@@ -1988,11 +2048,13 @@ namespace com.github.hkrn
                     }
                 };
                 var physBone = rootNode.AddComponent<VRCPhysBone>();
+                physBone.version = VRCPhysBoneBase.Version.Version_1_0;
+                physBone.integrationType = VRCPhysBoneBase.IntegrationType.Simplified;
                 physBone.multiChildType = VRCPhysBoneBase.MultiChildType.Ignore;
-                physBone.gravity = 1;
-                physBone.stiffness = 1;
+                physBone.gravity = 0.05f;
                 physBone.radius = 1;
-                physBone.pull = 1;
+                physBone.pull = 0.25f;
+                physBone.spring = 0.0f;
                 nodes.Add(rootNode.transform, nodeId);
                 {
                     var firstChildNode = new GameObject
@@ -2110,11 +2172,13 @@ namespace com.github.hkrn
                     }
                 };
                 var physBone = rootNode.AddComponent<VRCPhysBone>();
+                physBone.version = VRCPhysBoneBase.Version.Version_1_0;
+                physBone.integrationType = VRCPhysBoneBase.IntegrationType.Simplified;
                 physBone.multiChildType = multiChildType;
-                physBone.gravity = 1;
-                physBone.stiffness = 1;
+                physBone.gravity = 0.05f;
                 physBone.radius = 1;
-                physBone.pull = 1;
+                physBone.pull = 0.25f;
+                physBone.spring = 0.0f;
                 nodes.Add(rootNode.transform, nodeId);
                 {
                     var firstChildNode = new GameObject
