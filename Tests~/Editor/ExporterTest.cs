@@ -1861,7 +1861,7 @@ namespace com.github.hkrn
             var unregisteredPhysBone = new GameObject { transform = { parent = root.transform } }
                 .AddComponent<VRCPhysBone>();
             Assert.That(VrmRootExporter.GetSpringBoneColliderGroups(unregisteredPhysBone, colliderGroupIDs),
-                Is.Null);
+                Is.Empty);
         }
 
         [Test]
