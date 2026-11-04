@@ -1804,6 +1804,12 @@ namespace com.github.hkrn
                     $"PhysBone '{pb.name}': Version 1.1 gravity was approximated as a VRM 1.0 rest-direction force blend.");
             }
 
+            if (pb.integrationType == VRCPhysBoneBase.IntegrationType.Advanced)
+            {
+                Debug.LogWarning(
+                    $"PhysBone '{pb.name}': Advanced Momentum and Stiffness were approximated using VRM 1.0 stiffness and dragForce.");
+            }
+
             var nestedRoots = GetNestedPhysBoneRoots(pb);
             var rootChain = new List<Transform> { rootTransform };
             var chains = new List<List<Transform>> { rootChain };
