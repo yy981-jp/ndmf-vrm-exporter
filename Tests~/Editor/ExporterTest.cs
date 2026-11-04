@@ -1854,8 +1854,8 @@ namespace com.github.hkrn
                 0.2f
             );
 
-            Assert.That(forces.Stiffness, Is.EqualTo(2.0f).Within(0.0001f));
-            Assert.That(forces.DragForce, Is.EqualTo(0.35f).Within(0.0001f));
+            Assert.That(forces.Stiffness, Is.EqualTo(2.4f).Within(0.0001f));
+            Assert.That(forces.DragForce, Is.EqualTo(0.75f).Within(0.0001f));
             Assert.That(forces.GravityPower, Is.EqualTo(8.0f).Within(0.0001f));
             Assert.That(forces.GravityDir, Is.EqualTo(System.Numerics.Vector3.UnitY));
         }
@@ -1993,7 +1993,7 @@ namespace com.github.hkrn
                                 Node = new gltf.ObjectID(nodeId.ID + 1),
                                 HitRadius = 0.25f,
                                 Stiffness = 0.25f,
-                                DragForce = 0.25f,
+                                DragForce = 1,
                                 GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
@@ -2002,7 +2002,7 @@ namespace com.github.hkrn
                                 Node = new gltf.ObjectID(nodeId.ID + 2),
                                 HitRadius = 0.5f,
                                 Stiffness = 0.5f,
-                                DragForce = 0.5f,
+                                DragForce = 1,
                                 GravityPower = 0.5f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
@@ -2011,7 +2011,7 @@ namespace com.github.hkrn
                                 Node = new gltf.ObjectID(nodeId.ID + 3),
                                 HitRadius = 0.75f,
                                 Stiffness = 0.75f,
-                                DragForce = 0.75f,
+                                DragForce = 1,
                                 GravityPower = 0.75f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
