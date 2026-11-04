@@ -1730,10 +1730,11 @@ namespace com.github.hkrn
                     }
                     else
                     {
-                        // In Advanced mode, Momentum (spring) and the legacy
-                        // Stiffness value both help preserve the previous orientation.
-                        stiffnessForce = pull * StiffnessForceScale;
-                        dragForce = 1.0f - Mathf.Clamp01(spring + stiffness);
+                        // Version 1.0 Advanced exposes Momentum and Stiffness.
+                        // Stiffness adds to the rest-pose restoring force; Momentum
+                        // is approximated as reduced damping in VRM SpringBone.
+                        stiffnessForce = pull * StiffnessForceScale + stiffness;
+                        dragForce = 1.0f - spring;
                     }
 
                     // PhysBone 1.0 Gravity is a force, not a rest-pose ratio.
