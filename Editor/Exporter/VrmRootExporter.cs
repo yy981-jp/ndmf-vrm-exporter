@@ -1512,15 +1512,9 @@ namespace com.github.hkrn
             colliderGroups.Add(colliderGroup);
         }
 
-        private HashSet<Transform> GetIgnoredOtherPhysBoneRoots(VRCPhysBone pb)
+        private HashSet<Transform> GetNestedPhysBoneRoots(VRCPhysBone pb)
         {
-            var ignoredRoots = new HashSet<Transform>();
-#if NVE_HAS_IGNORE_OTHER_PHYS_BONES
-            if (!pb.ignoreOtherPhysBones)
-            {
-                return ignoredRoots;
-            }
-
+            var nestedRoots = new HashSet<Transform>();
             var rootTransform = pb.GetRootTransform();
             foreach (var otherPhysBone in _gameObject.GetComponentsInChildren<VRCPhysBone>(true))
             {
@@ -1535,19 +1529,21 @@ namespace com.github.hkrn
                     continue;
                 }
 
-                ignoredRoots.Add(otherRoot);
+                // A nested PhysBone owns its subtree. Keeping it in the parent chain
+                // would create overlapping VRM 1.0 SpringChains.
+                nestedRoots.Add(otherRoot);
             }
-#endif // NVE_HAS_IGNORE_OTHER_PHYS_BONES
-            return ignoredRoots;
+
+            return nestedRoots;
         }
 
-        private static List<Transform> GetSpringBoneChildren(Transform transform, ISet<Transform> ignoredRoots)
+        private static List<Transform> GetSpringBoneChildren(Transform transform, ISet<Transform> nestedRoots)
         {
             var children = new List<Transform>();
             for (var i = 0; i < transform.childCount; i++)
             {
                 var child = transform.GetChild(i);
-                if (!child || child is null || ignoredRoots.Contains(child))
+                if (!child || child is null || nestedRoots.Contains(child))
                 {
                     continue;
                 }
@@ -1559,10 +1555,10 @@ namespace com.github.hkrn
         }
 
         private static void RetrieveSpringBoneChainTransforms(Transform transform,
-            ISet<Transform> ignoredRoots, VRCPhysBoneBase.MultiChildType multiChildType,
+            ISet<Transform> nestedRoots, VRCPhysBoneBase.MultiChildType multiChildType,
             List<Transform> currentChain, IList<List<Transform>> chains)
         {
-            var children = GetSpringBoneChildren(transform, ignoredRoots);
+            var children = GetSpringBoneChildren(transform, nestedRoots);
             if (children.Count == 0)
             {
                 return;
@@ -1572,7 +1568,7 @@ namespace com.github.hkrn
             {
                 var child = children[0];
                 currentChain.Add(child);
-                RetrieveSpringBoneChainTransforms(child, ignoredRoots, multiChildType, currentChain, chains);
+                RetrieveSpringBoneChainTransforms(child, nestedRoots, multiChildType, currentChain, chains);
                 return;
             }
 
@@ -1588,7 +1584,7 @@ namespace com.github.hkrn
                 {
                     var branchChain = new List<Transform> { child };
                     chains.Add(branchChain);
-                    RetrieveSpringBoneChainTransforms(child, ignoredRoots, multiChildType, branchChain, chains);
+                    RetrieveSpringBoneChainTransforms(child, nestedRoots, multiChildType, branchChain, chains);
                 }
 
                 return;
@@ -1598,14 +1594,14 @@ namespace com.github.hkrn
             // its own chain so a child can never be mistaken for the next joint of its sibling.
             var firstChild = children[0];
             currentChain.Add(firstChild);
-            RetrieveSpringBoneChainTransforms(firstChild, ignoredRoots, multiChildType, currentChain, chains);
+            RetrieveSpringBoneChainTransforms(firstChild, nestedRoots, multiChildType, currentChain, chains);
 
             for (var i = 1; i < children.Count; i++)
             {
                 var child = children[i];
                 var branchChain = new List<Transform> { child };
                 chains.Add(branchChain);
-                RetrieveSpringBoneChainTransforms(child, ignoredRoots, multiChildType, branchChain, chains);
+                RetrieveSpringBoneChainTransforms(child, nestedRoots, multiChildType, branchChain, chains);
             }
         }
 
@@ -1669,11 +1665,11 @@ namespace com.github.hkrn
             IImmutableList<vrm.sb.ColliderGroup> colliderGroups, ref IList<vrm.sb.Spring> springs)
         {
             var rootTransform = pb.GetRootTransform();
-            var ignoredRoots = GetIgnoredOtherPhysBoneRoots(pb);
+            var nestedRoots = GetNestedPhysBoneRoots(pb);
             var rootChain = new List<Transform> { rootTransform };
             var chains = new List<List<Transform>> { rootChain };
 
-            RetrieveSpringBoneChainTransforms(rootTransform, ignoredRoots, pb.multiChildType, rootChain, chains);
+            RetrieveSpringBoneChainTransforms(rootTransform, nestedRoots, pb.multiChildType, rootChain, chains);
 
             var newChains = chains.Where(chain => chain.Count != 0).Select(ImmutableList.CreateRange)
                 .ToImmutableList();
