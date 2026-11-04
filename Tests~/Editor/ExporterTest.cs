@@ -1840,6 +1840,31 @@ namespace com.github.hkrn
         }
 
         [Test]
+        public void ExportPhysBoneUsesOnlyItsOwnColliderGroup()
+        {
+            var root = CreateRootGameObject();
+            var firstObject = new GameObject { transform = { parent = root.transform } };
+            var secondObject = new GameObject { transform = { parent = root.transform } };
+            var firstPhysBone = firstObject.AddComponent<VRCPhysBone>();
+            var secondPhysBone = secondObject.AddComponent<VRCPhysBone>();
+            var colliderGroupIDs = new Dictionary<VRCPhysBone, gltf.ObjectID>
+            {
+                { firstPhysBone, new gltf.ObjectID(3) },
+                { secondPhysBone, new gltf.ObjectID(7) },
+            };
+
+            Assert.That(VrmRootExporter.GetSpringBoneColliderGroups(firstPhysBone, colliderGroupIDs),
+                Is.EqualTo(new List<gltf.ObjectID> { new(3) }));
+            Assert.That(VrmRootExporter.GetSpringBoneColliderGroups(secondPhysBone, colliderGroupIDs),
+                Is.EqualTo(new List<gltf.ObjectID> { new(7) }));
+
+            var unregisteredPhysBone = new GameObject { transform = { parent = root.transform } }
+                .AddComponent<VRCPhysBone>();
+            Assert.That(VrmRootExporter.GetSpringBoneColliderGroups(unregisteredPhysBone, colliderGroupIDs),
+                Is.Null);
+        }
+
+        [Test]
         public void ExportPhysBoneMultiple()
         {
             var root = CreateRootGameObject();
