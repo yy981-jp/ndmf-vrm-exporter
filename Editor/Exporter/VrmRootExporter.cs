@@ -182,7 +182,7 @@ namespace com.github.hkrn
                 var bones = transform.GetComponents<VRCPhysBone>();
                 foreach (var bone in bones!)
                 {
-                    ConvertSpringBone(bone, component, immutablePbColliders, colliderGroupIDs, ref springs);
+                    ConvertSpringBone(bone, component, colliderGroupIDs, ref springs);
                 }
             }
 #endif // NVE_HAS_VRCHAT_AVATAR_SDK
@@ -1519,12 +1519,12 @@ namespace com.github.hkrn
             return colliderGroupID;
         }
 
-        internal static IList<gltf.ObjectID>? GetSpringBoneColliderGroups(VRCPhysBone pb,
+        internal static IList<gltf.ObjectID> GetSpringBoneColliderGroups(VRCPhysBone pb,
             IReadOnlyDictionary<VRCPhysBone, gltf.ObjectID> colliderGroupIDs)
         {
             return colliderGroupIDs.TryGetValue(pb, out var colliderGroupID)
                 ? new List<gltf.ObjectID> { colliderGroupID }
-                : null;
+                : new List<gltf.ObjectID>();
         }
 
         private HashSet<Transform> GetNestedPhysBoneRoots(VRCPhysBone pb)
@@ -1676,7 +1676,6 @@ namespace com.github.hkrn
         }
 
         private void ConvertSpringBone(VRCPhysBone pb, NdmfVrmExporterComponent component,
-            IImmutableList<VRCPhysBoneColliderBase> pbColliders,
             IReadOnlyDictionary<VRCPhysBone, gltf.ObjectID> colliderGroupIDs, ref IList<vrm.sb.Spring> springs)
         {
             var rootTransform = pb.GetRootTransform();
@@ -1693,14 +1692,13 @@ namespace com.github.hkrn
             foreach (var transforms in newChains)
             {
                 var name = hasChainBranch ? $"{pb.name}.{index}" : pb.name;
-                ConvertSpringBoneInner(pb, component, name, transforms, pbColliders, colliderGroupIDs, ref springs);
+                ConvertSpringBoneInner(pb, component, name, transforms, colliderGroupIDs, ref springs);
                 index++;
             }
         }
 
         private void ConvertSpringBoneInner(VRCPhysBone pb, NdmfVrmExporterComponent component, string name,
             IImmutableList<Transform> transforms,
-            IImmutableList<VRCPhysBoneColliderBase> pbColliders,
             IReadOnlyDictionary<VRCPhysBone, gltf.ObjectID> colliderGroupIDs, ref IList<vrm.sb.Spring> springs)
         {
             var rootTransform = pb.GetRootTransform();
