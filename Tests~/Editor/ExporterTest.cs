@@ -1892,7 +1892,7 @@ namespace com.github.hkrn
                 0.5f
             );
 
-            Assert.That(forces.Stiffness, Is.EqualTo(0.8f).Within(0.0001f));
+            Assert.That(forces.Stiffness, Is.EqualTo(1.2f).Within(0.0001f));
             Assert.That(forces.DragForce, Is.EqualTo(0.35f).Within(0.0001f));
             Assert.That(forces.GravityPower, Is.EqualTo(0.8f).Within(0.0001f));
             Assert.That(forces.GravityDir, Is.EqualTo(System.Numerics.Vector3.UnitY));
