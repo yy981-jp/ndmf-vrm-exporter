@@ -71,3 +71,4 @@ jobs:
         with:
           name: Test results
           path: ${{ steps.runAllTests.outputs.coveragePath }}
+          retention-days: 3
