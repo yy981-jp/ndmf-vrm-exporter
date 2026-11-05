@@ -23,6 +23,8 @@ namespace com.github.hkrn
         private const int FrameCount = 180;
         private const float ImpulseEndTime = 0.45f;
         private const float SettlingTolerance = 0.005f;
+        private const int ReferenceSettleWindowFrames = 15;
+        private const float ReferenceSettleTolerance = 0.001f;
 
         private static readonly float[] StiffnessScales = { 1.0f, 2.0f, 4.0f, 8.0f };
         private static readonly float[] InertiaScales = { 0.25f, 0.5f, 0.75f, 1.0f };
@@ -92,6 +94,13 @@ namespace com.github.hkrn
                     references[i].Add(Capture(chains[i], hips, time));
             }
 
+            Assert.That(references.All(samples =>
+            {
+                var finalTail = samples[samples.Count - 1].ReferenceTail;
+                return samples.Skip(samples.Count - ReferenceSettleWindowFrames)
+                    .All(sample => Vector3.Distance(sample.ReferenceTail, finalTail) <= ReferenceSettleTolerance);
+            }), Is.True,
+                "VRC PhysBone reference did not reach a stable terminal pose during the final 0.25 seconds.");
             var output = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "PhysBoneGridSearchResults"));
             if (Directory.Exists(output))
                 Directory.Delete(output, true);
@@ -305,14 +314,13 @@ namespace com.github.hkrn
             metrics.MaxError = maxError;
             metrics.PeakReferenceDeflection = peakReference;
             metrics.PeakCandidateDeflection = peakCandidate;
-            metrics.SettlingTime = FindSettlingTime(chains, references, candidateTracks);
+            metrics.SettlingTime = FindSettlingTime(references, candidateTracks);
             File.WriteAllText(Path.Combine(outputDirectory, $"candidate-{candidate.Id:D3}.csv"),
                 csv.ToString(), new UTF8Encoding(false));
             return metrics;
         }
 
         private static float FindSettlingTime(
-            IReadOnlyList<Chain> chains,
             IReadOnlyList<Sample>[] references,
             IReadOnlyList<Vector3>[] tracks)
         {
@@ -320,15 +328,13 @@ namespace com.github.hkrn
             for (var frame = first; frame <= FrameCount; frame++)
             {
                 var settled = true;
-                for (var chainIndex = 0; chainIndex < chains.Count && settled; chainIndex++)
+                for (var chainIndex = 0; chainIndex < references.Length && settled; chainIndex++)
                 {
-                    var chain = chains[chainIndex];
-                    for (var next = frame; next < references[chainIndex].Count; next++)
+                    var samples = references[chainIndex];
+                    var referenceTail = samples[samples.Count - 1].ReferenceTail;
+                    for (var next = frame; next < samples.Count; next++)
                     {
-                        var sample = references[chainIndex][next];
-                        var restDirection = sample.ParentRotation * chain.InitialLocalRotation * chain.BoneAxis;
-                        var restTail = sample.Anchor + restDirection * chain.BoneLength;
-                        if (Vector3.Distance(tracks[chainIndex][next], restTail) > SettlingTolerance)
+                        if (Vector3.Distance(tracks[chainIndex][next], referenceTail) > SettlingTolerance)
                         {
                             settled = false;
                             break;
@@ -399,6 +405,7 @@ namespace com.github.hkrn
             json.AppendLine("    \"gravity\": [2, 5, 10, 20]");
             json.AppendLine("  },");
             json.AppendLine("  \"referenceAlgorithm\": \"https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_springBone-1.0/README.md#update-procedure\",");
+            json.AppendLine("  \"settlingCriterion\": \"Candidate tail remains within 0.005m of the captured VRC terminal tail pose for all remaining samples.\",");
             json.AppendLine("  \"notes\": \"Synthetic four-panel skirt fixture; one measured segment per PhysBone chain. Candidate motion uses the VRMC_springBone 1.0 reference update equation. No colliders, limits, or multi-joint bending are included in this initial calibration.\",");
             json.AppendLine("  \"artifacts\": [\"reference.csv\", \"candidate-001.csv through candidate-064.csv\", \"summary.csv\"]");
             json.AppendLine("}");
@@ -407,15 +414,20 @@ namespace com.github.hkrn
 
         private static void WriteBest(string path, IReadOnlyList<Metrics> results)
         {
-            var best = results.OrderBy(item => item.RmsError).First();
+            var settled = results.Where(item => item.SettlingTime >= 0.0f).ToList();
+            var candidates = settled.Count > 0 ? settled : results.ToList();
+            var best = candidates.OrderBy(item => item.RmsError).First();
             var text = new StringBuilder();
-            text.AppendLine($"Best candidate by RMS position error: #{best.Candidate.Id:D3}");
+            text.AppendLine(settled.Count > 0
+                ? $"Best settled candidate by RMS position error: #{best.Candidate.Id:D3}"
+                : $"No candidate met the terminal-pose tolerance; best RMS candidate: #{best.Candidate.Id:D3}");
             text.AppendLine($"Stiffness scale: {F(best.Candidate.Scales.Stiffness)}");
             text.AppendLine($"Inertia scale: {F(best.Candidate.Scales.Inertia)}");
             text.AppendLine($"Gravity scale: {F(best.Candidate.Scales.Gravity)}");
             text.AppendLine($"RMS error: {F(best.RmsError)} m");
             text.AppendLine($"Maximum error: {F(best.MaxError)} m");
             text.AppendLine($"Settling time: {F(best.SettlingTime)} s (-1 means not settled)");
+            text.AppendLine($"Candidates meeting settling tolerance: {settled.Count}/{results.Count}");
             File.WriteAllText(path, text.ToString(), new UTF8Encoding(false));
         }
 

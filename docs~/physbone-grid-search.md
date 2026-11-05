@@ -45,13 +45,15 @@ The test writes `PhysBoneGridSearchResults/` at the Unity project root:
 - `reference.csv`: captured VRC anchor and tail positions for every frame and chain.
 - `candidate-001.csv` through `candidate-064.csv`: each candidate's tail trajectory and per-sample position error.
 - `summary.csv`: RMS position error, maximum position error, peak deflection, and settling time for every candidate.
-- `best-candidate.txt`: the candidate with the lowest RMS position error.
+- `best-candidate.txt`: the lowest-RMS candidate that meets the terminal-pose settling criterion, or the lowest-RMS candidate with an explicit warning if none settle.
 
-A settling time of `-1` means the candidate did not remain within the 5 mm rest-pose tolerance for the remainder of the capture window.
+A settling time is measured from the end of the body impulse. It is the first time at which every candidate tail remains within 5 mm of its corresponding captured VRC terminal tail position for all remaining samples. The reference itself must remain within 1 mm of its terminal pose during the final 0.25 seconds; otherwise the calibration test fails. A settling time of `-1` means the candidate did not meet this terminal-pose tolerance.
 
 ## Interpretation
 
-RMS position error is the primary ranking metric. The best candidate should not be adopted automatically: inspect maximum error, peak deflection, and settling time as well. A candidate that fits this single synthetic motion may overfit the fixture.
+RMS position error is the primary ranking metric, but the reported best candidate is selected from candidates that also meet the 5 mm terminal-pose settling criterion. Inspect maximum error and peak deflection as well. A candidate that fits this single synthetic motion may overfit the fixture.
+
+The first 64-candidate sweep (Unity 2022.3.22f1) produced a preliminary best settled candidate of Stiffness=8, Inertia=1, Gravity=10 (candidate #063): RMS error 0.010496 m and maximum error 0.035343 m. The existing production scales (4, 1, 20; candidate #048) produced RMS error 0.015965 m and maximum error 0.054523 m in the same fixture. The preliminary candidate therefore reduced RMS error by about 34.3% and maximum error by about 35.2%. Candidate #064 (8, 1, 20) had a slightly lower raw RMS error (0.010034 m), but ended 5.064 mm from the VRC terminal pose and therefore missed the 5 mm criterion. These results are specific to this one-segment synthetic fixture and are not sufficient to change production defaults.
 
 The reference trajectory is captured from the VRC SDK PhysBone component running in Unity Play Mode. Candidate trajectories are produced with the VRMC_springBone 1.0 reference update equation. This isolates the parameter mapping from differences between VRM runtime implementations, but it does not yet compare a complete exported VRM inside a specific VRM viewer.
 
