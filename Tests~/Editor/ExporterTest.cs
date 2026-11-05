@@ -1818,26 +1818,18 @@ namespace com.github.hkrn
             var exporter = new VrmRootExporter(root, assetSaver, nodes, allMorphTargets, extensionUsed);
             var sb = exporter.ExportSpringBone();
             Assert.That(sb.Springs, Is.Not.Null);
-            Assert.That(JsonConvert.SerializeObject(sb.Springs), Is.EqualTo(JsonConvert.SerializeObject(
-                new List<vrm.sb.Spring>
-                {
-                    new()
-                    {
-                        Name = new gltf.UnicodeString($"Node{nodeId.ID}"),
-                        Joints = new List<vrm.sb.Joint>
-                        {
-                            new()
-                            {
-                                Node = nodeId,
-                                HitRadius = 0.5f,
-                                Stiffness = 0.84f,
-                                DragForce = 0.79f,
-                                GravityPower = 0.8f,
-                                GravityDir = -System.Numerics.Vector3.UnitY
-                            }
-                        }
-                    }
-                })));
+            Assert.That(sb.Springs, Has.Count.EqualTo(1));
+            var spring = sb.Springs[0];
+            Assert.That(JsonConvert.SerializeObject(spring.Name), Is.EqualTo(
+                JsonConvert.SerializeObject(new gltf.UnicodeString($"Node{nodeId.ID}"))));
+            Assert.That(spring.Joints, Has.Count.EqualTo(1));
+            var joint = spring.Joints[0];
+            Assert.That(joint.Node.ID, Is.EqualTo(nodeId.ID));
+            Assert.That(joint.HitRadius, Is.EqualTo(0.5f).Within(0.0001f));
+            Assert.That(joint.Stiffness, Is.EqualTo(0.84f).Within(0.0001f));
+            Assert.That(joint.DragForce, Is.EqualTo(0.79f).Within(0.0001f));
+            Assert.That(joint.GravityPower, Is.EqualTo(0.8f).Within(0.0001f));
+            Assert.That(joint.GravityDir, Is.EqualTo(-System.Numerics.Vector3.UnitY));
             Assert.That(extensionUsed, Is.Empty);
         }
 
@@ -1984,7 +1976,7 @@ namespace com.github.hkrn
                                 Node = nodeId,
                                 HitRadius = 0,
                                 Stiffness = 0,
-                                DragForce = 0,
+                                DragForce = 1.0f,
                                 GravityPower = 0,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },

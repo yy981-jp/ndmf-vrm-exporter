@@ -44,13 +44,15 @@ jobs:
           vrc-get install -y jp.lilxyzw.liltoon
           vrc-get install -y jp.lilxyzw.lilycalinventory
           vrc-get install -y nadena.dev.modular-avatar
-      - name: Retrieve cache
+      - name: Restore and save Unity Library cache
+        id: unity-library-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: Library
-          key: Library-unity-${{ env.UNITY_VERSION }}
+          key: Library-${{ runner.os }}-unity-${{ env.UNITY_VERSION }}-${{ hashFiles('Packages/manifest.json', 'Packages/packages-lock.json', 'Packages/vpm-manifest.json', 'ProjectSettings/**') }}
           restore-keys: |
-            Library-unity-${{ env.UNITY_VERSION }}
+            Library-${{ runner.os }}-unity-${{ env.UNITY_VERSION }}-
+          save-always: true
       - name: Run all tests
         id: runAllTests
         # https://github.com/orgs/community/discussions/26829
