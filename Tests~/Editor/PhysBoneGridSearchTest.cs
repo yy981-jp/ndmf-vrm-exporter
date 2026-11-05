@@ -67,10 +67,11 @@ namespace com.github.hkrn
         {
             var oldCaptureFramerate = Time.captureFramerate;
             var oldFixedDeltaTime = Time.fixedDeltaTime;
+            var oldTimeScale = Time.timeScale;
 
             yield return new EnterPlayMode();
 
-            var avatar = CreateFixture(out var hips, out var chains);
+            CreateFixture(out var hips, out var chains);
             var references = chains.Select(_ => new List<Sample>()).ToArray();
             Time.timeScale = 1.0f;
             Time.captureFramerate = SampleRate;
@@ -112,6 +113,7 @@ namespace com.github.hkrn
 
             Time.captureFramerate = oldCaptureFramerate;
             Time.fixedDeltaTime = oldFixedDeltaTime;
+            Time.timeScale = oldTimeScale;
             // The fixture lives only in Play Mode and is removed when Play Mode exits.
 
             Assert.That(candidates.Count, Is.EqualTo(64));
@@ -395,7 +397,8 @@ namespace com.github.hkrn
             json.AppendLine("    \"inertia\": [0.25, 0.5, 0.75, 1],");
             json.AppendLine("    \"gravity\": [2, 5, 10, 20]");
             json.AppendLine("  },");
-            json.AppendLine("  \"notes\": \"Synthetic four-segment skirt fixture; one measured segment per PhysBone chain. Candidate motion uses the VRMC_springBone 1.0 reference update equation.\",");
+            json.AppendLine("  \"referenceAlgorithm\": \"https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_springBone-1.0/README.md#update-procedure\",");
+            json.AppendLine("  \"notes\": \"Synthetic four-panel skirt fixture; one measured segment per PhysBone chain. Candidate motion uses the VRMC_springBone 1.0 reference update equation. No colliders, limits, or multi-joint bending are included in this initial calibration.\",");
             json.AppendLine("  \"artifacts\": [\"reference.csv\", \"candidate-001.csv through candidate-064.csv\", \"summary.csv\"]");
             json.AppendLine("}");
             File.WriteAllText(path, json.ToString(), new UTF8Encoding(false));
