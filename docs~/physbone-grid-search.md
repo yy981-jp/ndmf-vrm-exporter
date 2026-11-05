@@ -33,7 +33,7 @@ The default production conversion uses Stiffness=4, Inertia=1, and Gravity=20. T
 
 Run the Unity EditMode test assembly `com.github.hkrn.NDMFVRMExporterTests`. The test enters Play Mode itself to capture the VRC PhysBone reference trajectory.
 
-GameCI requires a valid Unity license. Configure the repository Actions secret `UNITY_LICENSE` with the Unity license file content before expecting the test runner to start. The current workflow also accepts `UNITY_EMAIL` and `UNITY_PASSWORD` for the GameCI activation flow. Without a license, package setup can succeed but the Unity test runner will stop before compiling or executing the test.
+GameCI requires three repository-level Actions secrets for this Personal-license flow: `UNITY_LICENSE` (the full contents of the activated `.ulf` file), `UNITY_EMAIL` (the Unity account email), and `UNITY_PASSWORD` (the Unity account password). The test runner extracts the license serial from `UNITY_LICENSE`, then activates that serial inside the CI container using `UNITY_EMAIL` and `UNITY_PASSWORD`. The `.ulf` content alone is not sufficient for this version of the GameCI runner. Add all three under Settings → Secrets and variables → Actions → Repository secrets. Do not put credentials in workflow files or commit them. If any required secret is missing or unavailable to the workflow, package setup can succeed but the Unity test runner will stop before compiling or executing the test.
 
 The GameCI workflow runs this test on pushes to `develop` and `feature/physbone-grid-search`, and for pull requests targeting `develop` or `main`. The generated results are uploaded as the `PhysBone grid search results` workflow artifact.
 
