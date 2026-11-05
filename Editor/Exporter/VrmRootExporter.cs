@@ -1695,6 +1695,22 @@ namespace com.github.hkrn
             public System.Numerics.Vector3 GravityDir { get; }
         }
 
+        internal readonly struct SpringBoneForceScales
+        {
+            public SpringBoneForceScales(float stiffness, float inertia, float gravity)
+            {
+                Stiffness = stiffness;
+                Inertia = inertia;
+                Gravity = gravity;
+            }
+
+            public float Stiffness { get; }
+            public float Inertia { get; }
+            public float Gravity { get; }
+
+            public static SpringBoneForceScales Default => new(4.0f, 1.0f, 20.0f);
+        }
+
         internal static SpringBoneForceParameters ConvertSpringBoneForces(
             VRCPhysBoneBase.Version version,
             VRCPhysBoneBase.IntegrationType integrationType,
@@ -1704,14 +1720,33 @@ namespace com.github.hkrn
             float gravity,
             float gravityFalloff)
         {
+            return ConvertSpringBoneForces(
+                version,
+                integrationType,
+                pull,
+                spring,
+                stiffness,
+                gravity,
+                gravityFalloff,
+                SpringBoneForceScales.Default
+            );
+        }
+
+        internal static SpringBoneForceParameters ConvertSpringBoneForces(
+            VRCPhysBoneBase.Version version,
+            VRCPhysBoneBase.IntegrationType integrationType,
+            float pull,
+            float spring,
+            float stiffness,
+            float gravity,
+            float gravityFalloff,
+            SpringBoneForceScales scales)
+        {
             pull = Mathf.Clamp01(pull);
             spring = Mathf.Clamp01(spring);
             stiffness = Mathf.Clamp01(stiffness);
             gravity = Mathf.Clamp(gravity, -1.0f, 1.0f);
             gravityFalloff = Mathf.Clamp01(gravityFalloff);
-
-            const float StiffnessForceScale = 4.0f;
-            const float GravityPowerScale = 20.0f;
 
             float stiffnessForce;
             float dragForce;
@@ -1724,40 +1759,43 @@ namespace com.github.hkrn
                     if (integrationType == VRCPhysBoneBase.IntegrationType.Simplified)
                     {
                         // Version 1.0 Simplified uses Pull to restore the rest pose
-                        // and Spring to control wobble. This is an empirical VRM mapping.
-                        stiffnessForce = pull * (1.0f - spring) * StiffnessForceScale;
-                        dragForce = 1.0f - pull * spring;
+                        // and Spring to control wobble. The scales are calibration
+                        // variables, not values defined by either specification.
+                        stiffnessForce = pull * (1.0f - spring) * scales.Stiffness;
+                        var inertia = Mathf.Clamp01(pull * spring * scales.Inertia);
+                        dragForce = 1.0f - inertia;
                     }
                     else
                     {
                         // Version 1.0 Advanced exposes Momentum and Stiffness.
-                        // Stiffness adds to the rest-pose restoring force; Momentum
-                        // is approximated as reduced damping in VRM SpringBone.
-                        stiffnessForce = pull * StiffnessForceScale + stiffness;
-                        dragForce = 1.0f - spring;
+                        // Momentum is approximated as reduced damping in VRM SpringBone.
+                        stiffnessForce = pull * scales.Stiffness + stiffness;
+                        var inertia = Mathf.Clamp01(spring * scales.Inertia);
+                        dragForce = 1.0f - inertia;
                     }
 
                     // PhysBone 1.0 Gravity is a force, not a rest-pose ratio.
-                    gravityPower = Mathf.Abs(gravity) * GravityPowerScale * (1.0f - gravityFalloff);
+                    gravityPower = Mathf.Abs(gravity) * scales.Gravity * (1.0f - gravityFalloff);
                     break;
                 }
                 case VRCPhysBoneBase.Version.Version_1_1:
                 {
                     // Version 1.1 Gravity is a ratio. Approximate its rest direction
                     // by blending the rest-pose restoring force and world gravity.
-                    // Gravity Falloff is baked as a static reduction because VRM 1.0
-                    // has no angle-dependent Gravity Falloff parameter.
+                    // Gravity Falloff is baked as a static per-joint gravity reduction.
                     var gravityRatio = Mathf.Abs(gravity) * (1.0f - gravityFalloff);
-                    stiffnessForce = pull * (1.0f - gravityRatio) * StiffnessForceScale;
-                    gravityPower = pull * gravityRatio * StiffnessForceScale;
+                    stiffnessForce = pull * (1.0f - gravityRatio) * scales.Stiffness;
+                    gravityPower = pull * gravityRatio * scales.Stiffness;
 
                     if (integrationType == VRCPhysBoneBase.IntegrationType.Simplified)
                     {
-                        dragForce = 1.0f - pull * spring;
+                        var inertia = Mathf.Clamp01(pull * spring * scales.Inertia);
+                        dragForce = 1.0f - inertia;
                     }
                     else
                     {
-                        dragForce = 1.0f - Mathf.Clamp01(spring + stiffness);
+                        var inertia = Mathf.Clamp01((spring + stiffness) * scales.Inertia);
+                        dragForce = 1.0f - inertia;
                     }
 
                     break;
