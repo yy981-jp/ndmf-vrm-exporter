@@ -1388,7 +1388,7 @@ namespace com.github.hkrn
                     {
                         var extendedCollider = new vrm.sb.ExtendedCollider
                         {
-                            Spec = "1.0",
+                            SpecVersion = "1.0",
                             Shape = new vrm.sb.ExtendedShape
                             {
                                 Capsule = new vrm.sb.ShapeCapsule
@@ -1418,7 +1418,7 @@ namespace com.github.hkrn
                     var normal = collider.axis;
                     var extendedCollider = new vrm.sb.ExtendedCollider
                     {
-                        Spec = "1.0",
+                        SpecVersion = "1.0",
                         Shape = new vrm.sb.ExtendedShape
                         {
                             Plane = new vrm.sb.ShapePlane
@@ -1468,7 +1468,7 @@ namespace com.github.hkrn
                     {
                         var extendedCollider = new vrm.sb.ExtendedCollider
                         {
-                            Spec = "1.0",
+                            SpecVersion = "1.0",
                             Shape = new vrm.sb.ExtendedShape
                             {
                                 Sphere = new vrm.sb.ShapeSphere
