@@ -65,13 +65,13 @@ namespace com.github.hkrn
         [Category("PhysBoneGridSearch")]
         public IEnumerator CapturesVrcMotionAndEvaluatesAll64Candidates()
         {
-            var avatar = CreateFixture(out var hips, out var chains);
-            var references = chains.Select(_ => new List<Sample>()).ToArray();
             var oldCaptureFramerate = Time.captureFramerate;
             var oldFixedDeltaTime = Time.fixedDeltaTime;
 
             yield return new EnterPlayMode();
 
+            var avatar = CreateFixture(out var hips, out var chains);
+            var references = chains.Select(_ => new List<Sample>()).ToArray();
             Time.timeScale = 1.0f;
             Time.captureFramerate = SampleRate;
             Time.fixedDeltaTime = 1.0f / SampleRate;
@@ -112,7 +112,7 @@ namespace com.github.hkrn
 
             Time.captureFramerate = oldCaptureFramerate;
             Time.fixedDeltaTime = oldFixedDeltaTime;
-            UnityEngine.Object.DestroyImmediate(avatar);
+            // The fixture lives only in Play Mode and is removed when Play Mode exits.
 
             Assert.That(candidates.Count, Is.EqualTo(64));
             Assert.That(results.Count, Is.EqualTo(64));
