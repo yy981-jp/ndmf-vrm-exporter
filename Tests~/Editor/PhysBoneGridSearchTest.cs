@@ -358,7 +358,7 @@ namespace com.github.hkrn
             var maxError = 0.0f;
             var peakReference = 0.0f;
             var peakCandidate = 0.0f;
-            List<Vector3>[][][] candidateTracks = new List<Vector3>[][][captures.Count];
+            List<Vector3>[][][] candidateTracks = new List<Vector3>[captures.Count][][];
 
             for (var scenarioIndex = 0; scenarioIndex < captures.Count; scenarioIndex++)
             {
@@ -602,7 +602,20 @@ namespace com.github.hkrn
             json.AppendLine("  \"scenarios\": [");
             for (var i = 0; i < captures.Count; i++)
             {
-                json.Append("    \"").Append(captures[i].Scenario.Name).Append("\"");
+                var scenario = captures[i].Scenario;
+                json.AppendLine("    {");
+                json.Append("      \"name\": \"").Append(scenario.Name).AppendLine("\",");
+                json.Append("      \"translationMeters\": [")
+                    .Append(F(scenario.Translation.x)).Append(',')
+                    .Append(F(scenario.Translation.y)).Append(',')
+                    .Append(F(scenario.Translation.z)).AppendLine("],");
+                json.Append("      \"rotationDegrees\": [")
+                    .Append(F(scenario.RotationDegrees.x)).Append(',')
+                    .Append(F(scenario.RotationDegrees.y)).Append(',')
+                    .Append(F(scenario.RotationDegrees.z)).AppendLine("],");
+                json.Append("      \"outboundDurationSeconds\": ").Append(F(scenario.OutboundDuration)).AppendLine(",");
+                json.Append("      \"returnDurationSeconds\": ").Append(F(scenario.ReturnDuration)).AppendLine();
+                json.Append("    }");
                 json.AppendLine(i + 1 < captures.Count ? "," : string.Empty);
             }
             json.AppendLine("  ],");
