@@ -27,8 +27,8 @@ namespace com.github.hkrn
         private const float ReferenceSettleTolerance = 0.001f;
         private const int SegmentCountPerChain = 2;
 
-        private static readonly float[] StiffnessScales = { 1.0f, 2.0f, 4.0f, 8.0f };
-        private static readonly float[] InertiaScales = { 0.25f, 0.5f, 0.75f, 1.0f };
+        private static readonly float[] StiffnessScales = { 4.0f, 8.0f, 12.0f, 16.0f };
+        private static readonly float[] InertiaScales = { 1.0f, 2.0f, 3.0f, 4.0f };
         private static readonly float[] GravityScales = { 2.0f, 5.0f, 10.0f, 20.0f };
 
         private sealed class Chain
@@ -492,8 +492,8 @@ namespace com.github.hkrn
             json.Append("    \"gravityFalloff\": ").Append(F(physBone.gravityFalloff)).AppendLine();
             json.AppendLine("  },");
             json.AppendLine("  \"scaleAxes\": {");
-            json.AppendLine("    \"stiffness\": [1, 2, 4, 8],");
-            json.AppendLine("    \"inertia\": [0.25, 0.5, 0.75, 1],");
+            json.AppendLine("    \"stiffness\": [4, 8, 12, 16],");
+            json.AppendLine("    \"inertia\": [1, 2, 3, 4],");
             json.AppendLine("    \"gravity\": [2, 5, 10, 20]");
             json.AppendLine("  },");
             json.AppendLine("  \"referenceAlgorithm\": \"https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_springBone-1.0/README.md#update-procedure\",");
