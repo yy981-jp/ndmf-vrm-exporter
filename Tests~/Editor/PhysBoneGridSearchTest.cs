@@ -122,14 +122,23 @@ namespace com.github.hkrn
 
             yield return new EnterPlayMode();
 
-            var scenarios = BuildMotionScenarios();
             Time.timeScale = 1.0f;
             Time.captureFramerate = SampleRate;
             Time.fixedDeltaTime = 1.0f / SampleRate;
 
-            var captures = new List<ScenarioCapture>(scenarios.Length);
-            foreach (var scenario in scenarios)
+            var captures = new List<ScenarioCapture>(2);
+            for (var scenarioIndex = 0; scenarioIndex < 2; scenarioIndex++)
             {
+                var scenario = new MotionScenario
+                {
+                    Name = scenarioIndex == 0 ? "lateral-roll" : "vertical-forward-tilt",
+                    Translation = scenarioIndex == 0
+                        ? new Vector3(0.14f, 0.0f, 0.0f)
+                        : new Vector3(0.0f, 0.06f, 0.12f),
+                    RotationDegrees = scenarioIndex == 0
+                        ? new Vector3(0.0f, 0.0f, 8.0f)
+                        : new Vector3(7.0f, 5.0f, 0.0f),
+                };
                 var avatar = CreateFixture(out var hips, out var chains);
                 var references = chains.Select(_ => new List<Sample>()).ToArray();
 
@@ -235,25 +244,6 @@ namespace com.github.hkrn
             Assert.That(File.Exists(Path.Combine(output, "scenario-summary.csv")), Is.True);
             Assert.That(File.Exists(Path.Combine(output, "baseline.csv")), Is.True);
             Assert.That(Directory.GetFiles(output, "candidate-*.csv").Length, Is.EqualTo(64));
-        }
-
-        private static MotionScenario[] BuildMotionScenarios()
-        {
-            return new[]
-            {
-                new MotionScenario
-                {
-                    Name = "lateral-roll",
-                    Translation = new Vector3(0.14f, 0.0f, 0.0f),
-                    RotationDegrees = new Vector3(0.0f, 0.0f, 8.0f),
-                },
-                new MotionScenario
-                {
-                    Name = "vertical-forward-tilt",
-                    Translation = new Vector3(0.0f, 0.06f, 0.12f),
-                    RotationDegrees = new Vector3(7.0f, 5.0f, 0.0f),
-                },
-            };
         }
 
         private static bool IsReferenceSettled(IReadOnlyList<Sample>[] references)
