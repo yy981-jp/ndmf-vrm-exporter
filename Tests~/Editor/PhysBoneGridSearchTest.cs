@@ -755,7 +755,7 @@ namespace com.github.hkrn
             var candidates = settledGridCandidates.Count > 0 ? settledGridCandidates : gridCandidates;
             var best = candidates.OrderBy(item => item.RmsError).First();
             var text = new StringBuilder();
-            text.AppendLine(settled.Count > 0
+            text.AppendLine(settledGridCandidates.Count > 0
                 ? $"Best settled candidate by RMS position error: {CandidateLabel(best.Candidate)}"
                 : $"No candidate met the terminal-pose tolerance; best RMS candidate: {CandidateLabel(best.Candidate)}");
             text.AppendLine($"Stiffness scale: {F(best.Candidate.Scales.Stiffness)}");
