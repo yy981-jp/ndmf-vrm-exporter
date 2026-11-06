@@ -35,7 +35,7 @@ The production default is evaluated separately on every run as `baseline.csv`; i
 
 ## Running
 
-Run the Unity EditMode test assembly `com.github.hkrn.NDMFVRMExporterTests`. The test enters Play Mode itself and captures both VRC PhysBone reference trajectories.
+Run the Unity EditMode test assembly `com.github.hkrn.NDMFVRMExporterTests`. The calibration test uses Unity Test Framework `UnitySetUp` to enter Play Mode before its coroutine body, captures both VRC PhysBone reference trajectories, and uses `UnityTearDown` to return to Edit Mode even when the test fails. This keeps the EditMode-only test assembly from running a coroutine across the Play Mode domain reload.
 
 GameCI requires three repository-level Actions secrets for this Personal-license flow: `UNITY_LICENSE` (the full contents of the activated `.ulf` file), `UNITY_EMAIL` (the Unity account email), and `UNITY_PASSWORD` (the Unity account password). The test runner extracts the license serial from `UNITY_LICENSE`, then activates that serial inside the CI container using `UNITY_EMAIL` and `UNITY_PASSWORD`. The `.ulf` content alone is not sufficient for this version of the GameCI runner. Add all three under Settings → Secrets and variables → Actions → Repository secrets. Do not put credentials in workflow files or commit them. If any required secret is missing or unavailable to the workflow, package setup can succeed but the Unity test runner will stop before compiling or executing the test.
 
