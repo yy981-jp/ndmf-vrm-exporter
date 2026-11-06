@@ -25,6 +25,7 @@ namespace com.github.hkrn
         private const float SettlingTolerance = 0.005f;
         private const int ReferenceSettleWindowFrames = 15;
         private const float ReferenceSettleTolerance = 0.001f;
+        private const int SegmentCountPerChain = 2;
 
         private static readonly float[] StiffnessScales = { 1.0f, 2.0f, 4.0f, 8.0f };
         private static readonly float[] InertiaScales = { 0.25f, 0.5f, 0.75f, 1.0f };
@@ -32,20 +33,19 @@ namespace com.github.hkrn
 
         private sealed class Chain
         {
-            public Transform Root;
-            public Transform Mid;
+            public Transform[] Nodes;
             public VRCPhysBone PhysBone;
-            public Vector3 BoneAxis;
-            public float BoneLength;
-            public Quaternion InitialLocalRotation;
+            public Vector3[] BoneAxes;
+            public float[] BoneLengths;
+            public Quaternion[] InitialLocalRotations;
         }
 
         private sealed class Sample
         {
             public float Time;
-            public Vector3 Anchor;
-            public Quaternion ParentRotation;
-            public Vector3 ReferenceTail;
+            public Vector3[] Anchors;
+            public Quaternion[] ParentRotations;
+            public Vector3[] ReferenceTails;
         }
 
         private sealed class Candidate
@@ -96,11 +96,21 @@ namespace com.github.hkrn
 
             Assert.That(references.All(samples =>
             {
-                var finalTail = samples[samples.Count - 1].ReferenceTail;
-                return samples.Skip(samples.Count - ReferenceSettleWindowFrames)
-                    .All(sample => Vector3.Distance(sample.ReferenceTail, finalTail) <= ReferenceSettleTolerance);
+                var finalTails = samples[samples.Count - 1].ReferenceTails;
+                return samples.Skip(samples.Count - ReferenceSettleWindowFrames).All(sample =>
+                {
+                    for (var segment = 0; segment < finalTails.Length; segment++)
+                    {
+                        if (Vector3.Distance(sample.ReferenceTails[segment], finalTails[segment])
+                            > ReferenceSettleTolerance)
+                        {
+                            return false;
+                        }
+                    }
+                    return true;
+                });
             }), Is.True,
-                "VRC PhysBone reference did not reach a stable terminal pose during the final 0.25 seconds.");
+                "VRC PhysBone reference did not reach a stable terminal pose for every joint pair during the final 0.25 seconds.");
             var output = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "PhysBoneGridSearchResults"));
             if (Directory.Exists(output))
                 Directory.Delete(output, true);
@@ -147,7 +157,7 @@ namespace com.github.hkrn
             hips = hipsObject.transform;
             chains = new List<Chain>();
 
-            // Four radial skirt panels, each represented by one measured spring segment.
+            // Four radial skirt panels, each represented by two consecutive spring segments.
             for (var i = 0; i < 4; i++)
             {
                 var radial = Quaternion.Euler(0.0f, i * 90.0f, 0.0f) * Vector3.forward;
@@ -176,12 +186,23 @@ namespace com.github.hkrn
 
                 chains.Add(new Chain
                 {
-                    Root = root.transform,
-                    Mid = mid.transform,
+                    Nodes = new[] { root.transform, mid.transform, tip.transform },
                     PhysBone = physBone,
-                    BoneAxis = mid.transform.localPosition.normalized,
-                    BoneLength = mid.transform.localPosition.magnitude,
-                    InitialLocalRotation = root.transform.localRotation,
+                    BoneAxes = new[]
+                    {
+                        mid.transform.localPosition.normalized,
+                        tip.transform.localPosition.normalized,
+                    },
+                    BoneLengths = new[]
+                    {
+                        mid.transform.localPosition.magnitude,
+                        tip.transform.localPosition.magnitude,
+                    },
+                    InitialLocalRotations = new[]
+                    {
+                        root.transform.localRotation,
+                        mid.transform.localRotation,
+                    },
                 });
             }
 
@@ -211,13 +232,27 @@ namespace com.github.hkrn
 
         private static Sample Capture(Chain chain, Transform hips, float time)
         {
-            return new Sample
+            var segmentCount = chain.BoneLengths.Length;
+            var sample = new Sample
             {
                 Time = time,
-                Anchor = chain.Root.position,
-                ParentRotation = hips.rotation,
-                ReferenceTail = chain.Mid.position,
+                Anchors = new Vector3[segmentCount],
+                ParentRotations = new Quaternion[segmentCount],
+                ReferenceTails = new Vector3[segmentCount],
             };
+
+            for (var segment = 0; segment < segmentCount; segment++)
+            {
+                var head = chain.Nodes[segment];
+                var tail = chain.Nodes[segment + 1];
+                var parent = head.parent;
+
+                sample.Anchors[segment] = head.position;
+                sample.ParentRotations[segment] = parent != null ? parent.rotation : Quaternion.identity;
+                sample.ReferenceTails[segment] = tail.position;
+            }
+
+            return sample;
         }
 
         private static List<Candidate> BuildCandidates()
@@ -245,19 +280,20 @@ namespace com.github.hkrn
         {
             var metrics = new Metrics { Candidate = candidate, SettlingTime = -1.0f };
             var csv = new StringBuilder();
-            csv.AppendLine("frame,time,chain,referenceX,referenceY,referenceZ,candidateX,candidateY,candidateZ,errorMeters");
+            csv.AppendLine("frame,time,chain,segment,referenceX,referenceY,referenceZ,candidateX,candidateY,candidateZ,errorMeters");
 
             double squaredError = 0.0;
             var sampleCount = 0;
             var maxError = 0.0f;
             var peakReference = 0.0f;
             var peakCandidate = 0.0f;
-            var candidateTracks = new List<Vector3>[chains.Count];
+            var candidateTracks = new List<Vector3>[chains.Count][];
 
             for (var chainIndex = 0; chainIndex < chains.Count; chainIndex++)
             {
                 var chain = chains[chainIndex];
                 var samples = references[chainIndex];
+                var segmentCount = chain.BoneLengths.Length;
                 var physBone = chain.PhysBone;
                 var force = VrmRootExporter.ConvertSpringBoneForces(
                     VRCPhysBoneBase.Version.Version_1_0,
@@ -266,48 +302,90 @@ namespace com.github.hkrn
                     physBone.gravity, physBone.gravityFalloff, candidate.Scales);
 
                 var gravityDirection = new Vector3(force.GravityDir.X, force.GravityDir.Y, force.GravityDir.Z);
-                var currentTail = samples[0].Anchor
-                    + samples[0].ParentRotation * chain.InitialLocalRotation * chain.BoneAxis * chain.BoneLength;
-                var previousTail = currentTail;
-                var track = new List<Vector3>(samples.Count) { currentTail };
+                var currentTails = (Vector3[])samples[0].ReferenceTails.Clone();
+                var previousTails = (Vector3[])currentTails.Clone();
+                var tracks = new List<Vector3>[segmentCount];
+
+                for (var segment = 0; segment < segmentCount; segment++)
+                {
+                    tracks[segment] = new List<Vector3>(samples.Count) { currentTails[segment] };
+                }
 
                 for (var frame = 1; frame < samples.Count; frame++)
                 {
                     var sample = samples[frame];
                     var deltaTime = sample.Time - samples[frame - 1].Time;
-                    var restDirection = sample.ParentRotation * chain.InitialLocalRotation * chain.BoneAxis;
+                    var headPosition = sample.Anchors[0];
+                    var parentWorldRotation = sample.ParentRotations[0];
 
-                    // VRMC_springBone 1.0 reference Verlet update for a single segment.
-                    var inertia = (currentTail - previousTail) * (1.0f - force.DragForce);
-                    var stiffness = restDirection * (deltaTime * force.Stiffness);
-                    var gravity = gravityDirection * (deltaTime * force.GravityPower);
-                    var nextTail = currentTail + inertia + stiffness + gravity;
+                    for (var segment = 0; segment < segmentCount; segment++)
+                    {
+                        var boneAxis = chain.BoneAxes[segment];
+                        var boneLength = chain.BoneLengths[segment];
+                        var initialLocalRotation = chain.InitialLocalRotations[segment];
+                        var restWorldRotation = parentWorldRotation * initialLocalRotation;
+                        var restDirection = restWorldRotation * boneAxis;
 
-                    var fromAnchor = nextTail - sample.Anchor;
-                    if (fromAnchor.sqrMagnitude > Mathf.Epsilon)
-                        nextTail = sample.Anchor + fromAnchor.normalized * chain.BoneLength;
+                        // VRMC_springBone 1.0 reference Verlet update for this joint pair.
+                        var inertia = (currentTails[segment] - previousTails[segment])
+                            * (1.0f - force.DragForce);
+                        var stiffness = restDirection * (deltaTime * force.Stiffness);
+                        var gravity = gravityDirection * (deltaTime * force.GravityPower);
+                        var nextTail = currentTails[segment] + inertia + stiffness + gravity;
 
-                    previousTail = currentTail;
-                    currentTail = nextTail;
-                    track.Add(currentTail);
+                        var fromHead = nextTail - headPosition;
+                        if (fromHead.sqrMagnitude > Mathf.Epsilon)
+                            nextTail = headPosition + fromHead.normalized * boneLength;
 
-                    var error = Vector3.Distance(currentTail, sample.ReferenceTail);
-                    squaredError += error * error;
-                    sampleCount++;
-                    maxError = Mathf.Max(maxError, error);
+                        // Apply the head-node rotation before evaluating the next pair.
+                        // The next pair inherits this updated world rotation as its parent.
+                        var toDirection = nextTail - headPosition;
+                        if (toDirection.sqrMagnitude > Mathf.Epsilon)
+                        {
+                            var toLocal = Quaternion.Inverse(restWorldRotation) * toDirection.normalized;
+                            var localRotation = initialLocalRotation
+                                * Quaternion.FromToRotation(boneAxis, toLocal);
+                            parentWorldRotation = parentWorldRotation * localRotation;
+                        }
+                        else
+                        {
+                            parentWorldRotation = restWorldRotation;
+                        }
 
-                    var restTail = sample.Anchor + restDirection * chain.BoneLength;
-                    peakReference = Mathf.Max(peakReference, Vector3.Distance(sample.ReferenceTail, restTail));
-                    peakCandidate = Mathf.Max(peakCandidate, Vector3.Distance(currentTail, restTail));
+                        previousTails[segment] = currentTails[segment];
+                        currentTails[segment] = nextTail;
+                        tracks[segment].Add(nextTail);
 
-                    csv.Append(frame.ToString(CultureInfo.InvariantCulture)).Append(',')
-                        .Append(F(sample.Time)).Append(',').Append(chainIndex.ToString(CultureInfo.InvariantCulture)).Append(',')
-                        .Append(F(sample.ReferenceTail.x)).Append(',').Append(F(sample.ReferenceTail.y)).Append(',')
-                        .Append(F(sample.ReferenceTail.z)).Append(',').Append(F(currentTail.x)).Append(',')
-                        .Append(F(currentTail.y)).Append(',').Append(F(currentTail.z)).Append(',').Append(F(error)).AppendLine();
+                        var error = Vector3.Distance(nextTail, sample.ReferenceTails[segment]);
+                        squaredError += error * error;
+                        sampleCount++;
+                        maxError = Mathf.Max(maxError, error);
+
+                        var referenceRestDirection = sample.ParentRotations[segment]
+                            * initialLocalRotation * boneAxis;
+                        var referenceRestTail = sample.Anchors[segment]
+                            + referenceRestDirection * boneLength;
+                        peakReference = Mathf.Max(peakReference,
+                            Vector3.Distance(sample.ReferenceTails[segment], referenceRestTail));
+                        var candidateRestTail = headPosition + restDirection * boneLength;
+                        peakCandidate = Mathf.Max(peakCandidate,
+                            Vector3.Distance(nextTail, candidateRestTail));
+
+                        csv.Append(frame.ToString(CultureInfo.InvariantCulture)).Append(',')
+                            .Append(F(sample.Time)).Append(',')
+                            .Append(chainIndex.ToString(CultureInfo.InvariantCulture)).Append(',')
+                            .Append(segment.ToString(CultureInfo.InvariantCulture)).Append(',')
+                            .Append(F(sample.ReferenceTails[segment].x)).Append(',')
+                            .Append(F(sample.ReferenceTails[segment].y)).Append(',')
+                            .Append(F(sample.ReferenceTails[segment].z)).Append(',')
+                            .Append(F(nextTail.x)).Append(',').Append(F(nextTail.y)).Append(',')
+                            .Append(F(nextTail.z)).Append(',').Append(F(error)).AppendLine();
+
+                        headPosition = nextTail;
+                    }
                 }
 
-                candidateTracks[chainIndex] = track;
+                candidateTracks[chainIndex] = tracks;
             }
 
             metrics.RmsError = sampleCount == 0 ? 0.0f : Mathf.Sqrt((float)(squaredError / sampleCount));
@@ -322,7 +400,7 @@ namespace com.github.hkrn
 
         private static float FindSettlingTime(
             IReadOnlyList<Sample>[] references,
-            IReadOnlyList<Vector3>[] tracks)
+            List<Vector3>[][] tracks)
         {
             var first = Mathf.CeilToInt(ImpulseEndTime * SampleRate);
             for (var frame = first; frame <= FrameCount; frame++)
@@ -331,13 +409,18 @@ namespace com.github.hkrn
                 for (var chainIndex = 0; chainIndex < references.Length && settled; chainIndex++)
                 {
                     var samples = references[chainIndex];
-                    var referenceTail = samples[samples.Count - 1].ReferenceTail;
-                    for (var next = frame; next < samples.Count; next++)
+                    var finalTails = samples[samples.Count - 1].ReferenceTails;
+                    for (var segment = 0; segment < finalTails.Length && settled; segment++)
                     {
-                        if (Vector3.Distance(tracks[chainIndex][next], referenceTail) > SettlingTolerance)
+                        var referenceTail = finalTails[segment];
+                        for (var next = frame; next < samples.Count; next++)
                         {
-                            settled = false;
-                            break;
+                            if (Vector3.Distance(tracks[chainIndex][segment][next], referenceTail)
+                                > SettlingTolerance)
+                            {
+                                settled = false;
+                                break;
+                            }
                         }
                     }
                 }
@@ -350,18 +433,24 @@ namespace com.github.hkrn
         private static void WriteReference(string path, IReadOnlyList<Sample>[] references)
         {
             var csv = new StringBuilder();
-            csv.AppendLine("frame,time,chain,anchorX,anchorY,anchorZ,parentQX,parentQY,parentQZ,parentQW,tailX,tailY,tailZ");
+            csv.AppendLine("frame,time,chain,segment,anchorX,anchorY,anchorZ,parentQX,parentQY,parentQZ,parentQW,tailX,tailY,tailZ");
             for (var chain = 0; chain < references.Length; chain++)
             for (var frame = 0; frame < references[chain].Count; frame++)
+            for (var segment = 0; segment < references[chain][frame].ReferenceTails.Length; segment++)
             {
                 var sample = references[chain][frame];
+                var anchor = sample.Anchors[segment];
+                var parentRotation = sample.ParentRotations[segment];
+                var tail = sample.ReferenceTails[segment];
+
                 csv.Append(frame.ToString(CultureInfo.InvariantCulture)).Append(',')
                     .Append(F(sample.Time)).Append(',').Append(chain.ToString(CultureInfo.InvariantCulture)).Append(',')
-                    .Append(F(sample.Anchor.x)).Append(',').Append(F(sample.Anchor.y)).Append(',')
-                    .Append(F(sample.Anchor.z)).Append(',').Append(F(sample.ParentRotation.x)).Append(',')
-                    .Append(F(sample.ParentRotation.y)).Append(',').Append(F(sample.ParentRotation.z)).Append(',')
-                    .Append(F(sample.ParentRotation.w)).Append(',').Append(F(sample.ReferenceTail.x)).Append(',')
-                    .Append(F(sample.ReferenceTail.y)).Append(',').Append(F(sample.ReferenceTail.z)).AppendLine();
+                    .Append(segment.ToString(CultureInfo.InvariantCulture)).Append(',')
+                    .Append(F(anchor.x)).Append(',').Append(F(anchor.y)).Append(',')
+                    .Append(F(anchor.z)).Append(',').Append(F(parentRotation.x)).Append(',')
+                    .Append(F(parentRotation.y)).Append(',').Append(F(parentRotation.z)).Append(',')
+                    .Append(F(parentRotation.w)).Append(',').Append(F(tail.x)).Append(',')
+                    .Append(F(tail.y)).Append(',').Append(F(tail.z)).AppendLine();
             }
             File.WriteAllText(path, csv.ToString(), new UTF8Encoding(false));
         }
@@ -389,7 +478,10 @@ namespace com.github.hkrn
             json.Append("  \"unityVersion\": \"").Append(Application.unityVersion).AppendLine("\",");
             json.Append("  \"sampleRateHz\": ").Append(SampleRate.ToString(CultureInfo.InvariantCulture)).AppendLine(",");
             json.Append("  \"frameCount\": ").Append(FrameCount.ToString(CultureInfo.InvariantCulture)).AppendLine(",");
-            json.Append("  \"chainCount\": 4,");
+            json.Append("  \"chainCount\": 4,").AppendLine();
+            json.Append("  \"segmentCountPerChain\": ").Append(SegmentCountPerChain.ToString(CultureInfo.InvariantCulture)).AppendLine(",");
+            json.Append("  \"simulatedJointPairCount\": ")
+                .Append((4 * SegmentCountPerChain).ToString(CultureInfo.InvariantCulture)).AppendLine(",");
             json.Append("  \"candidateCount\": ").Append(candidateCount.ToString(CultureInfo.InvariantCulture)).AppendLine(",");
             json.AppendLine("  \"physBone\": {");
             json.AppendLine("    \"version\": \"1.0\",");
@@ -406,7 +498,7 @@ namespace com.github.hkrn
             json.AppendLine("  },");
             json.AppendLine("  \"referenceAlgorithm\": \"https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_springBone-1.0/README.md#update-procedure\",");
             json.AppendLine("  \"settlingCriterion\": \"Candidate tail remains within 0.005m of the captured VRC terminal tail pose for all remaining samples.\",");
-            json.AppendLine("  \"notes\": \"Synthetic four-panel skirt fixture; one measured segment per PhysBone chain. Candidate motion uses the VRMC_springBone 1.0 reference update equation. No colliders, limits, or multi-joint bending are included in this initial calibration.\",");
+            json.AppendLine("  \"notes\": \"Synthetic four-panel skirt fixture; two consecutive measured segments per PhysBone chain. Candidate motion applies each updated head-node rotation before evaluating the next VRMC_springBone 1.0 joint pair. The fixture uses unit scale and world space. No colliders, limits, or additional body-motion scenarios are included.\",");
             json.AppendLine("  \"artifacts\": [\"reference.csv\", \"candidate-001.csv through candidate-064.csv\", \"summary.csv\"]");
             json.AppendLine("}");
             File.WriteAllText(path, json.ToString(), new UTF8Encoding(false));
