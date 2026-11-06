@@ -4,17 +4,18 @@ The `PhysBoneGridSearchTest` test captures a deterministic VRC PhysBone referenc
 
 ## Scope
 
-The initial calibration target is deliberately narrow:
+The current calibration fixture covers the following:
 
 - PhysBone version: 1.0
 - Integration type: Simplified
-- Scenario: a synthetic four-panel skirt moving sideways and returning to rest
-- Sampling: 60 Hz for 180 frames
-- Spring representation: two consecutive measured segments (Root → Mid → Tip) per PhysBone chain
-- Total simulated joint pairs: eight across the four chains
+- Scenarios: a lateral translation with roll, and a vertical/forward translation with pitch and yaw
+- Sampling: 60 Hz for 180 frames per scenario
+- Spring representation: four consecutive measured segments per PhysBone chain
+- Chains: four radial skirt-like chains per scenario, with slightly different segment lengths
+- Total simulated joint pairs: 16 per scenario and 32 across both scenario captures
 - Colliders and limits: not included in this fixture
 
-This is a calibration harness, not a complete equivalence test for arbitrary avatars. It evaluates two consecutive joint pairs per chain and propagates each simulated head-joint rotation before evaluating the next pair, following the root-to-descendant update order in the VRMC_springBone 1.0 reference algorithm. The fixture uses unit scale and world-space evaluation. It still omits colliders, spring limits, center-space evaluation, per-joint parameter curves, and additional body-motion scenarios.
+This is a calibration harness, not a complete equivalence test for arbitrary avatars. It evaluates four consecutive joint pairs per chain and propagates each simulated head-joint rotation before evaluating the next pair, following the root-to-descendant update order in the VRMC_springBone 1.0 reference algorithm. The fixtures use unit scale and world-space evaluation. They still omit colliders, spring limits, center-space evaluation, per-joint parameter curves, non-unit scale, PhysBone 1.0 Advanced, and PhysBone 1.1.
 
 ## Grid
 
@@ -34,7 +35,7 @@ The production default is evaluated separately on every run as `baseline.csv`; i
 
 ## Running
 
-Run the Unity EditMode test assembly `com.github.hkrn.NDMFVRMExporterTests`. The test enters Play Mode itself to capture the VRC PhysBone reference trajectory.
+Run the Unity EditMode test assembly `com.github.hkrn.NDMFVRMExporterTests`. The test enters Play Mode itself and captures both VRC PhysBone reference trajectories.
 
 GameCI requires three repository-level Actions secrets for this Personal-license flow: `UNITY_LICENSE` (the full contents of the activated `.ulf` file), `UNITY_EMAIL` (the Unity account email), and `UNITY_PASSWORD` (the Unity account password). The test runner extracts the license serial from `UNITY_LICENSE`, then activates that serial inside the CI container using `UNITY_EMAIL` and `UNITY_PASSWORD`. The `.ulf` content alone is not sufficient for this version of the GameCI runner. Add all three under Settings → Secrets and variables → Actions → Repository secrets. Do not put credentials in workflow files or commit them. If any required secret is missing or unavailable to the workflow, package setup can succeed but the Unity test runner will stop before compiling or executing the test.
 
@@ -44,22 +45,22 @@ The GameCI workflow runs this test on pushes to `develop` and `feature/physbone-
 
 The test writes `PhysBoneGridSearchResults/` at the Unity project root:
 
-- `metadata.json`: Unity version, fixture settings, sampling rate, candidate axes, production-baseline scales, and reference algorithm.
-- `reference.csv`: captured VRC anchor and tail positions for every frame, chain, and segment.
-- `baseline.csv`: production-default trajectory and per-sample position error.
-- `candidate-001.csv` through `candidate-064.csv`: each grid candidate's tail trajectory and per-sample position error, including the segment index.
-- `summary.csv`: RMS position error, maximum position error, peak deflection, and settling time for all 64 grid candidates plus the `baseline` row.
+- `metadata.json`: Unity version, both motion scenarios and their parameters, fixture settings, sampling rate, candidate axes, production-baseline scales, and reference algorithm.
+- `reference.csv`: captured VRC anchor and tail positions for every scenario, frame, chain, and segment. It includes a `scenario` column.
+- `baseline.csv`: production-default trajectory and per-sample position error for both scenarios.
+- `candidate-001.csv` through `candidate-064.csv`: each grid candidate's tail trajectory and per-sample position error across both scenarios, including the scenario and segment columns.
+- `summary.csv`: aggregate RMS position error, maximum position error, peak deflection, and worst-case settling time for all 64 grid candidates plus the `baseline` row. The aggregate RMS uses every sampled pair in both scenarios; settling requires every scenario to meet the terminal-pose criterion.
 - `best-candidate.txt`: the lowest-RMS evaluation that meets the terminal-pose settling criterion, or the lowest-RMS evaluation with an explicit warning if none settle.
 
-A settling time is measured from the end of the body impulse. It is the first time at which every candidate tail remains within 5 mm of its corresponding captured VRC terminal tail position for all remaining samples. The reference itself must remain within 1 mm of its terminal pose during the final 0.25 seconds; otherwise the calibration test fails. A settling time of `-1` means the candidate did not meet this terminal-pose tolerance.
+For each scenario, settling time is measured from the end of that scenario's body impulse. It is the first time at which every candidate tail remains within 5 mm of its corresponding captured VRC terminal tail position for all remaining samples. The reported settling time is the slower of the two scenario results, and is `-1` if either scenario fails to settle. Each VRC reference must remain within 1 mm of its terminal pose during the final 0.25 seconds; otherwise the calibration test fails.
 
 ## Interpretation
 
-RMS position error is the primary ranking metric, but the reported best candidate is selected from candidates that also meet the 5 mm terminal-pose settling criterion. Inspect maximum error and peak deflection as well. A candidate that fits this single synthetic motion may overfit the fixture.
+RMS position error is the primary ranking metric, but the reported best candidate is selected from evaluations that also meet the 5 mm terminal-pose settling criterion in both scenarios. Inspect maximum error and peak deflection as well. A candidate that fits these two synthetic motions may still overfit the fixture.
 
 The initial one-segment sweep is retained only as a historical baseline: it selected candidate #063 (Stiffness=8, Inertia=1, Gravity=10) among settled candidates. Its RMS and maximum errors are not directly comparable with the current two-segment sweep because the measured joint-pair set has changed.
 
-The last completed two-segment run before the expanded search was GameCI Run #13. It used Stiffness `[4, 8, 12, 16]`, Inertia `[1, 2, 3, 4]`, and Gravity `[2, 5, 10, 20]`. Its best settled candidate was #058 (16, 3, 5), with RMS error 0.002594 m, maximum error 0.016327 m, and settling time 0.15 s; 36 of 64 candidates settled. The production default `(4, 1, 20)` was candidate #004 in that previous grid, with RMS error 0.028268 m and no settling result. These are historical results for the previous axes; the next CI run will evaluate the expanded grid and explicit baseline.
+The last completed two-segment, single-motion run before the expanded fixture was GameCI Run #13. It used Stiffness `[4, 8, 12, 16]`, Inertia `[1, 2, 3, 4]`, and Gravity `[2, 5, 10, 20]`. Its best settled candidate was #058 (16, 3, 5), with RMS error 0.002594 m, maximum error 0.016327 m, and settling time 0.15 s; 36 of 64 candidates settled. The production default `(4, 1, 20)` was candidate #004 in that previous grid, with RMS error 0.028268 m and no settling result. Those measurements are historical and are not directly comparable with the new four-segment, two-scenario fixture. Results from the expanded fixture are pending a new Unity test run.
 
 Neither synthetic sweep alone is sufficient to change production defaults.
 
