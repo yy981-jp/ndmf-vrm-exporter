@@ -26,10 +26,6 @@ namespace com.github.hkrn
         private const float ReferenceSettleTolerance = 0.001f;
         private const int SegmentCountPerChain = 4;
 
-        private static readonly float[] StiffnessScales = { 4.0f, 8.0f, 12.0f, 16.0f };
-        private static readonly float[] InertiaScales = { 1.0f, 2.0f, 3.0f, 4.0f };
-        private static readonly float[] GravityScales = { 2.0f, 5.0f, 10.0f, 20.0f };
-
         private sealed class MotionScenario
         {
             public string Name;
@@ -375,11 +371,14 @@ namespace com.github.hkrn
 
         private static List<Candidate> BuildCandidates()
         {
+            var stiffnessScales = new[] { 4.0f, 8.0f, 12.0f, 16.0f };
+            var inertiaScales = new[] { 1.0f, 2.0f, 3.0f, 4.0f };
+            var gravityScales = new[] { 2.0f, 5.0f, 10.0f, 20.0f };
             var output = new List<Candidate>(64);
             var id = 1;
-            foreach (var stiffness in StiffnessScales)
-            foreach (var inertia in InertiaScales)
-            foreach (var gravity in GravityScales)
+            foreach (var stiffness in stiffnessScales)
+            foreach (var inertia in inertiaScales)
+            foreach (var gravity in gravityScales)
             {
                 output.Add(new Candidate
                 {
