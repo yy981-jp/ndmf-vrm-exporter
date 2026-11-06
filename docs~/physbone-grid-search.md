@@ -50,6 +50,7 @@ The test writes `PhysBoneGridSearchResults/` at the Unity project root:
 - `baseline.csv`: production-default trajectory and per-sample position error for both scenarios.
 - `candidate-001.csv` through `candidate-064.csv`: each grid candidate's tail trajectory and per-sample position error across both scenarios, including the scenario and segment columns.
 - `summary.csv`: aggregate RMS position error, maximum position error, peak deflection, and worst-case settling time for all 64 grid candidates plus the `baseline` row. The aggregate RMS uses every sampled pair in both scenarios; settling requires every scenario to meet the terminal-pose criterion.
+- `scenario-summary.csv`: per-candidate and per-scenario RMS position error, maximum position error, peak deflection, and settling time. Use this to spot candidates that perform well overall but poorly in one motion scenario.
 - `best-candidate.txt`: the lowest-RMS evaluation that meets the terminal-pose settling criterion, or the lowest-RMS evaluation with an explicit warning if none settle.
 
 For each scenario, settling time is measured from the end of that scenario's body impulse. It is the first time at which every candidate tail remains within 5 mm of its corresponding captured VRC terminal tail position for all remaining samples. The reported settling time is the slower of the two scenario results, and is `-1` if either scenario fails to settle. Each VRC reference must remain within 1 mm of its terminal pose during the final 0.25 seconds; otherwise the calibration test fails.
