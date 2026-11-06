@@ -10,10 +10,11 @@ The initial calibration target is deliberately narrow:
 - Integration type: Simplified
 - Scenario: a synthetic four-panel skirt moving sideways and returning to rest
 - Sampling: 60 Hz for 180 frames
-- Spring representation: one measured Root-to-Mid segment per PhysBone chain
-- Colliders and limits: not included in this first fixture
+- Spring representation: two consecutive measured segments (Root → Mid → Tip) per PhysBone chain
+- Total simulated joint pairs: eight across the four chains
+- Colliders and limits: not included in this fixture
 
-This is a calibration harness, not a complete equivalence test for arbitrary avatars. It currently evaluates the VRMC_springBone 1.0 reference update procedure for one segment per chain. Multi-joint bending, collisions, spring limits, and additional body-motion scenarios should be added in later iterations.
+This is a calibration harness, not a complete equivalence test for arbitrary avatars. It evaluates two consecutive joint pairs per chain and propagates each simulated head-joint rotation before evaluating the next pair, following the root-to-descendant update order in the VRMC_springBone 1.0 reference algorithm. The fixture uses unit scale and world-space evaluation. It still omits colliders, spring limits, center-space evaluation, per-joint parameter curves, and additional body-motion scenarios.
 
 ## Grid
 
@@ -42,8 +43,8 @@ The GameCI workflow runs this test on pushes to `develop` and `feature/physbone-
 The test writes `PhysBoneGridSearchResults/` at the Unity project root:
 
 - `metadata.json`: Unity version, fixture settings, sampling rate, candidate axes, and reference algorithm.
-- `reference.csv`: captured VRC anchor and tail positions for every frame and chain.
-- `candidate-001.csv` through `candidate-064.csv`: each candidate's tail trajectory and per-sample position error.
+- `reference.csv`: captured VRC anchor and tail positions for every frame, chain, and segment.
+- `candidate-001.csv` through `candidate-064.csv`: each candidate's tail trajectory and per-sample position error, including the segment index.
 - `summary.csv`: RMS position error, maximum position error, peak deflection, and settling time for every candidate.
 - `best-candidate.txt`: the lowest-RMS candidate that meets the terminal-pose settling criterion, or the lowest-RMS candidate with an explicit warning if none settle.
 
@@ -53,8 +54,8 @@ A settling time is measured from the end of the body impulse. It is the first ti
 
 RMS position error is the primary ranking metric, but the reported best candidate is selected from candidates that also meet the 5 mm terminal-pose settling criterion. Inspect maximum error and peak deflection as well. A candidate that fits this single synthetic motion may overfit the fixture.
 
-The first 64-candidate sweep (Unity 2022.3.22f1) produced a preliminary best settled candidate of Stiffness=8, Inertia=1, Gravity=10 (candidate #063): RMS error 0.010496 m and maximum error 0.035343 m. The existing production scales (4, 1, 20; candidate #048) produced RMS error 0.015965 m and maximum error 0.054523 m in the same fixture. The preliminary candidate therefore reduced RMS error by about 34.3% and maximum error by about 35.2%. Candidate #064 (8, 1, 20) had a slightly lower raw RMS error (0.010034 m), but ended 5.064 mm from the VRC terminal pose and therefore missed the 5 mm criterion. These results are specific to this one-segment synthetic fixture and are not sufficient to change production defaults.
+The initial one-segment sweep is retained only as a historical baseline: it selected candidate #063 (Stiffness=8, Inertia=1, Gravity=10) among settled candidates. Its RMS and maximum errors are not directly comparable with the current two-segment sweep because the measured joint-pair set has changed. The two-segment results from the latest CI run should be used for any follow-up analysis. Neither synthetic sweep alone is sufficient to change production defaults.
 
-The reference trajectory is captured from the VRC SDK PhysBone component running in Unity Play Mode. Candidate trajectories are produced with the VRMC_springBone 1.0 reference update equation. This isolates the parameter mapping from differences between VRM runtime implementations, but it does not yet compare a complete exported VRM inside a specific VRM viewer.
+The reference trajectory is captured from the VRC SDK PhysBone component running in Unity Play Mode. Candidate trajectories are produced with the non-normative VRMC_springBone 1.0 reference update procedure: Verlet integration, length constraint, then head-node rotation, processing each chain from root to descendant. This isolates the parameter mapping from differences between VRM runtime implementations, but it does not yet compare a complete exported VRM inside a specific VRM viewer.
 
 Reference algorithm: [VRMC_springBone 1.0 — Update procedure](https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_springBone-1.0/README.md#update-procedure)
