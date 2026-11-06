@@ -11,6 +11,7 @@ using System.Text;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
+using UnityEditor;
 using VRC.Dynamics;
 using VRC.SDK3.Avatars.Components;
 using VRC.SDK3.Dynamics.PhysBone.Components;
@@ -19,6 +20,13 @@ namespace com.github.hkrn
 {
     public sealed class PhysBoneGridSearchTest
     {
+        private bool _hasOriginalEditorSettings;
+        private bool _originalEnterPlayModeOptionsEnabled;
+        private EnterPlayModeOptions _originalEnterPlayModeOptions;
+        private int _originalCaptureFramerate;
+        private float _originalFixedDeltaTime;
+        private float _originalTimeScale;
+
         private const int SampleRate = 60;
         private const int FrameCount = 180;
         private const float SettlingTolerance = 0.005f;
@@ -116,11 +124,19 @@ namespace com.github.hkrn
         [Category("PhysBoneGridSearch")]
         public IEnumerator CapturesVrcMotionsAndEvaluates64CandidatesAgainstProductionBaseline()
         {
-            var oldCaptureFramerate = Time.captureFramerate;
-            var oldFixedDeltaTime = Time.fixedDeltaTime;
-            var oldTimeScale = Time.timeScale;
+            _originalCaptureFramerate = Time.captureFramerate;
+            _originalFixedDeltaTime = Time.fixedDeltaTime;
+            _originalTimeScale = Time.timeScale;
+            _originalEnterPlayModeOptionsEnabled = EditorSettings.enterPlayModeOptionsEnabled;
+            _originalEnterPlayModeOptions = EditorSettings.enterPlayModeOptions;
+            _hasOriginalEditorSettings = true;
 
-            yield return new EnterPlayMode();
+            EditorSettings.enterPlayModeOptionsEnabled = true;
+            EditorSettings.enterPlayModeOptions =
+                _originalEnterPlayModeOptions | EnterPlayModeOptions.DisableDomainReload;
+
+            // Keep this EditMode test assembly alive while switching to Play Mode.
+            yield return new EnterPlayMode(expectDomainReload: false);
 
             Time.timeScale = 1.0f;
             Time.captureFramerate = SampleRate;
@@ -218,10 +234,7 @@ namespace com.github.hkrn
             var peakReferenceMotion = results.Max(result => result.PeakReferenceDeflection);
 
             yield return new ExitPlayMode();
-
-            Time.captureFramerate = oldCaptureFramerate;
-            Time.fixedDeltaTime = oldFixedDeltaTime;
-            Time.timeScale = oldTimeScale;
+            RestoreEditorSettings();
             // The fixtures live only in Play Mode and are removed when Play Mode exits.
 
             Assert.That(captures.Count, Is.EqualTo(2));
@@ -244,6 +257,28 @@ namespace com.github.hkrn
             Assert.That(File.Exists(Path.Combine(output, "scenario-summary.csv")), Is.True);
             Assert.That(File.Exists(Path.Combine(output, "baseline.csv")), Is.True);
             Assert.That(Directory.GetFiles(output, "candidate-*.csv").Length, Is.EqualTo(64));
+        }
+
+        [UnityTearDown]
+        public IEnumerator RestorePlayModeAfterTest()
+        {
+            if (EditorApplication.isPlaying)
+                yield return new ExitPlayMode();
+
+            RestoreEditorSettings();
+        }
+
+        private void RestoreEditorSettings()
+        {
+            if (!_hasOriginalEditorSettings)
+                return;
+
+            Time.captureFramerate = _originalCaptureFramerate;
+            Time.fixedDeltaTime = _originalFixedDeltaTime;
+            Time.timeScale = _originalTimeScale;
+            EditorSettings.enterPlayModeOptions = _originalEnterPlayModeOptions;
+            EditorSettings.enterPlayModeOptionsEnabled = _originalEnterPlayModeOptionsEnabled;
+            _hasOriginalEditorSettings = false;
         }
 
         private static bool IsReferenceSettled(IReadOnlyList<Sample>[] references)
