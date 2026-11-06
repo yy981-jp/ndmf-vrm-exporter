@@ -11,7 +11,6 @@ using System.Text;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
-using UnityEditor;
 using VRC.Dynamics;
 using VRC.SDK3.Avatars.Components;
 using VRC.SDK3.Dynamics.PhysBone.Components;
@@ -20,19 +19,28 @@ namespace com.github.hkrn
 {
     public sealed class PhysBoneGridSearchTest
     {
-        private bool _hasOriginalEditorSettings;
-        private bool _originalEnterPlayModeOptionsEnabled;
-        private EnterPlayModeOptions _originalEnterPlayModeOptions;
-        private int _originalCaptureFramerate;
-        private float _originalFixedDeltaTime;
-        private float _originalTimeScale;
-
         private const int SampleRate = 60;
         private const int FrameCount = 180;
         private const float SettlingTolerance = 0.005f;
         private const int ReferenceSettleWindowFrames = 15;
         private const float ReferenceSettleTolerance = 0.001f;
         private const int SegmentCountPerChain = 4;
+
+        private static readonly MotionScenario[] MotionScenarios =
+        {
+            new MotionScenario
+            {
+                Name = "lateral-roll",
+                Translation = new Vector3(0.14f, 0.0f, 0.0f),
+                RotationDegrees = new Vector3(0.0f, 0.0f, 8.0f),
+            },
+            new MotionScenario
+            {
+                Name = "vertical-forward-tilt",
+                Translation = new Vector3(0.0f, 0.06f, 0.12f),
+                RotationDegrees = new Vector3(7.0f, 5.0f, 0.0f),
+            },
+        };
 
         private sealed class MotionScenario
         {
@@ -120,41 +128,34 @@ namespace com.github.hkrn
             public List<ScenarioMetrics> Scenarios;
         }
 
+        [UnitySetUp]
+        public IEnumerator EnterPlayModeForPhysBoneCapture()
+        {
+            yield return new EnterPlayMode();
+        }
+
+        [UnityTearDown]
+        public IEnumerator ExitPlayModeAfterPhysBoneCapture()
+        {
+            if (UnityEditor.EditorApplication.isPlaying)
+                yield return new ExitPlayMode();
+        }
+
         [UnityTest]
         [Category("PhysBoneGridSearch")]
         public IEnumerator CapturesVrcMotionsAndEvaluates64CandidatesAgainstProductionBaseline()
         {
-            _originalCaptureFramerate = Time.captureFramerate;
-            _originalFixedDeltaTime = Time.fixedDeltaTime;
-            _originalTimeScale = Time.timeScale;
-            _originalEnterPlayModeOptionsEnabled = EditorSettings.enterPlayModeOptionsEnabled;
-            _originalEnterPlayModeOptions = EditorSettings.enterPlayModeOptions;
-            _hasOriginalEditorSettings = true;
-
-            EditorSettings.enterPlayModeOptionsEnabled = true;
-            EditorSettings.enterPlayModeOptions =
-                _originalEnterPlayModeOptions | EnterPlayModeOptions.DisableDomainReload;
-
-            // Keep this EditMode test assembly alive while switching to Play Mode.
-            yield return new EnterPlayMode(expectDomainReload: false);
+            var oldCaptureFramerate = Time.captureFramerate;
+            var oldFixedDeltaTime = Time.fixedDeltaTime;
+            var oldTimeScale = Time.timeScale;
 
             Time.timeScale = 1.0f;
             Time.captureFramerate = SampleRate;
             Time.fixedDeltaTime = 1.0f / SampleRate;
 
-            var captures = new List<ScenarioCapture>(2);
-            for (var scenarioIndex = 0; scenarioIndex < 2; scenarioIndex++)
+            var captures = new List<ScenarioCapture>(MotionScenarios.Length);
+            foreach (var scenario in MotionScenarios)
             {
-                var scenario = new MotionScenario
-                {
-                    Name = scenarioIndex == 0 ? "lateral-roll" : "vertical-forward-tilt",
-                    Translation = scenarioIndex == 0
-                        ? new Vector3(0.14f, 0.0f, 0.0f)
-                        : new Vector3(0.0f, 0.06f, 0.12f),
-                    RotationDegrees = scenarioIndex == 0
-                        ? new Vector3(0.0f, 0.0f, 8.0f)
-                        : new Vector3(7.0f, 5.0f, 0.0f),
-                };
                 var avatar = CreateFixture(out var hips, out var chains);
                 var references = chains.Select(_ => new List<Sample>()).ToArray();
 
@@ -233,9 +234,9 @@ namespace com.github.hkrn
 
             var peakReferenceMotion = results.Max(result => result.PeakReferenceDeflection);
 
-            yield return new ExitPlayMode();
-            RestoreEditorSettings();
-            // The fixtures live only in Play Mode and are removed when Play Mode exits.
+            Time.captureFramerate = oldCaptureFramerate;
+            Time.fixedDeltaTime = oldFixedDeltaTime;
+            Time.timeScale = oldTimeScale;
 
             Assert.That(captures.Count, Is.EqualTo(2));
             Assert.That(captures.All(capture => capture.Chains.Count == 4), Is.True);
@@ -257,28 +258,6 @@ namespace com.github.hkrn
             Assert.That(File.Exists(Path.Combine(output, "scenario-summary.csv")), Is.True);
             Assert.That(File.Exists(Path.Combine(output, "baseline.csv")), Is.True);
             Assert.That(Directory.GetFiles(output, "candidate-*.csv").Length, Is.EqualTo(64));
-        }
-
-        [UnityTearDown]
-        public IEnumerator RestorePlayModeAfterTest()
-        {
-            if (EditorApplication.isPlaying)
-                yield return new ExitPlayMode();
-
-            RestoreEditorSettings();
-        }
-
-        private void RestoreEditorSettings()
-        {
-            if (!_hasOriginalEditorSettings)
-                return;
-
-            Time.captureFramerate = _originalCaptureFramerate;
-            Time.fixedDeltaTime = _originalFixedDeltaTime;
-            Time.timeScale = _originalTimeScale;
-            EditorSettings.enterPlayModeOptions = _originalEnterPlayModeOptions;
-            EditorSettings.enterPlayModeOptionsEnabled = _originalEnterPlayModeOptionsEnabled;
-            _hasOriginalEditorSettings = false;
         }
 
         private static bool IsReferenceSettled(IReadOnlyList<Sample>[] references)
