@@ -218,6 +218,10 @@ namespace com.github.hkrn
                 samples.Count == FrameCount + 1)), Is.True);
             Assert.That(candidates.Count, Is.EqualTo(64));
             Assert.That(results.Count, Is.EqualTo(65));
+            Assert.That(results.All(result =>
+                result.Scenarios != null && result.Scenarios.Count == captures.Count), Is.True);
+            Assert.That(File.ReadAllLines(Path.Combine(output, "scenario-summary.csv")).Length,
+                Is.EqualTo(1 + results.Count * captures.Count));
             Assert.That(peakReferenceMotion, Is.GreaterThan(0.0001f),
                 "PhysBone did not move in Play Mode. The reference capture is unusable.");
             Assert.That(File.Exists(Path.Combine(output, "reference.csv")), Is.True);
