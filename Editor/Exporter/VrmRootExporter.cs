@@ -1708,7 +1708,21 @@ namespace com.github.hkrn
             public float Inertia { get; }
             public float Gravity { get; }
 
+            // Retained for PhysBone modes that have not been calibrated separately.
             public static SpringBoneForceScales Default => new(4.0f, 1.0f, 20.0f);
+
+            // Calibrated against PhysBone 1.0 / Simplified reference motion.
+            public static SpringBoneForceScales Version10Simplified => new(8.0f, 3.0f, 5.0f);
+
+            public static SpringBoneForceScales GetDefault(
+                VRCPhysBoneBase.Version version,
+                VRCPhysBoneBase.IntegrationType integrationType)
+            {
+                return version == VRCPhysBoneBase.Version.Version_1_0
+                    && integrationType == VRCPhysBoneBase.IntegrationType.Simplified
+                    ? Version10Simplified
+                    : Default;
+            }
         }
 
         internal static SpringBoneForceParameters ConvertSpringBoneForces(
@@ -1728,7 +1742,7 @@ namespace com.github.hkrn
                 stiffness,
                 gravity,
                 gravityFalloff,
-                SpringBoneForceScales.Default
+                SpringBoneForceScales.GetDefault(version, integrationType)
             );
         }
 

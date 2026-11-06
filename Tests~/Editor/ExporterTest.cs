@@ -1826,11 +1826,30 @@ namespace com.github.hkrn
             var joint = spring.Joints[0];
             Assert.That(joint.Node.ID, Is.EqualTo(nodeId.ID));
             Assert.That(joint.HitRadius, Is.EqualTo(0.5f).Within(0.0001f));
-            Assert.That(joint.Stiffness, Is.EqualTo(0.84f).Within(0.0001f));
-            Assert.That(joint.DragForce, Is.EqualTo(0.79f).Within(0.0001f));
-            Assert.That(joint.GravityPower, Is.EqualTo(0.8f).Within(0.0001f));
+            Assert.That(joint.Stiffness, Is.EqualTo(1.68f).Within(0.0001f));
+            Assert.That(joint.DragForce, Is.EqualTo(0.37f).Within(0.0001f));
+            Assert.That(joint.GravityPower, Is.EqualTo(0.2f).Within(0.0001f));
             Assert.That(joint.GravityDir, Is.EqualTo(-System.Numerics.Vector3.UnitY));
             Assert.That(extensionUsed, Is.Empty);
+        }
+
+        [Test]
+        public void ConvertPhysBoneForcesV10SimplifiedUsesCalibratedDefaults()
+        {
+            var forces = VrmRootExporter.ConvertSpringBoneForces(
+                VRCPhysBoneBase.Version.Version_1_0,
+                VRCPhysBoneBase.IntegrationType.Simplified,
+                0.42f,
+                0.5f,
+                0.9f,
+                0.04f,
+                0.0f
+            );
+
+            Assert.That(forces.Stiffness, Is.EqualTo(1.68f).Within(0.0001f));
+            Assert.That(forces.DragForce, Is.EqualTo(0.37f).Within(0.0001f));
+            Assert.That(forces.GravityPower, Is.EqualTo(0.2f).Within(0.0001f));
+            Assert.That(forces.GravityDir, Is.EqualTo(-System.Numerics.Vector3.UnitY));
         }
 
         [Test]
