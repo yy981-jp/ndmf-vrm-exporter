@@ -27,8 +27,8 @@ namespace com.github.hkrn
         private const float ReferenceSettleTolerance = 0.001f;
         private const int SegmentCountPerChain = 2;
 
-        private static readonly float[] StiffnessScales = { 4.0f, 8.0f, 12.0f, 16.0f };
-        private static readonly float[] InertiaScales = { 1.0f, 2.0f, 3.0f, 4.0f };
+        private static readonly float[] StiffnessScales = { 12.0f, 16.0f, 20.0f, 24.0f };
+        private static readonly float[] InertiaScales = { 2.0f, 3.0f, 4.0f, 5.0f };
         private static readonly float[] GravityScales = { 2.0f, 5.0f, 10.0f, 20.0f };
 
         private sealed class Chain
@@ -51,6 +51,7 @@ namespace com.github.hkrn
         private sealed class Candidate
         {
             public int Id;
+            public bool IsBaseline;
             public VrmRootExporter.SpringBoneForceScales Scales;
         }
 
@@ -66,7 +67,7 @@ namespace com.github.hkrn
 
         [UnityTest]
         [Category("PhysBoneGridSearch")]
-        public IEnumerator CapturesVrcMotionAndEvaluatesAll64Candidates()
+        public IEnumerator CapturesVrcMotionAndEvaluates64CandidatesAgainstProductionBaseline()
         {
             var oldCaptureFramerate = Time.captureFramerate;
             var oldFixedDeltaTime = Time.fixedDeltaTime;
@@ -118,13 +119,20 @@ namespace com.github.hkrn
 
             WriteReference(Path.Combine(output, "reference.csv"), references);
             var candidates = BuildCandidates();
-            var results = new List<Metrics>(candidates.Count);
+            var results = new List<Metrics>(candidates.Count + 1);
+            var baseline = new Candidate
+            {
+                Id = 0,
+                IsBaseline = true,
+                Scales = VrmRootExporter.SpringBoneForceScales.Default,
+            };
+            results.Add(Evaluate(baseline, chains, references, output));
 
             foreach (var candidate in candidates)
                 results.Add(Evaluate(candidate, chains, references, output));
 
             WriteSummary(Path.Combine(output, "summary.csv"), results);
-            WriteMetadata(Path.Combine(output, "metadata.json"), chains[0].PhysBone, candidates.Count);
+            WriteMetadata(Path.Combine(output, "metadata.json"), chains[0].PhysBone, candidates.Count, baseline.Scales);
             WriteBest(Path.Combine(output, "best-candidate.txt"), results);
 
             var peakReferenceMotion = results.Max(result => result.PeakReferenceDeflection);
@@ -137,12 +145,13 @@ namespace com.github.hkrn
             // The fixture lives only in Play Mode and is removed when Play Mode exits.
 
             Assert.That(candidates.Count, Is.EqualTo(64));
-            Assert.That(results.Count, Is.EqualTo(64));
+            Assert.That(results.Count, Is.EqualTo(65));
             Assert.That(references.All(samples => samples.Count == FrameCount + 1), Is.True);
             Assert.That(peakReferenceMotion, Is.GreaterThan(0.0001f),
                 "PhysBone did not move in Play Mode. The reference capture is unusable.");
             Assert.That(File.Exists(Path.Combine(output, "reference.csv")), Is.True);
             Assert.That(File.Exists(Path.Combine(output, "summary.csv")), Is.True);
+            Assert.That(File.Exists(Path.Combine(output, "baseline.csv")), Is.True);
             Assert.That(Directory.GetFiles(output, "candidate-*.csv").Length, Is.EqualTo(64));
         }
 
@@ -393,7 +402,8 @@ namespace com.github.hkrn
             metrics.PeakReferenceDeflection = peakReference;
             metrics.PeakCandidateDeflection = peakCandidate;
             metrics.SettlingTime = FindSettlingTime(references, candidateTracks);
-            File.WriteAllText(Path.Combine(outputDirectory, $"candidate-{candidate.Id:D3}.csv"),
+            var fileName = candidate.IsBaseline ? "baseline.csv" : $"candidate-{candidate.Id:D3}.csv";
+            File.WriteAllText(Path.Combine(outputDirectory, fileName),
                 csv.ToString(), new UTF8Encoding(false));
             return metrics;
         }
@@ -461,7 +471,7 @@ namespace com.github.hkrn
             csv.AppendLine("candidateId,stiffnessScale,inertiaScale,gravityScale,rmsErrorMeters,maxErrorMeters,peakReferenceDeflectionMeters,peakCandidateDeflectionMeters,settlingTimeSeconds");
             foreach (var item in results)
             {
-                csv.Append(item.Candidate.Id.ToString(CultureInfo.InvariantCulture)).Append(',')
+                csv.Append(item.Candidate.IsBaseline ? "baseline" : item.Candidate.Id.ToString(CultureInfo.InvariantCulture)).Append(',')
                     .Append(F(item.Candidate.Scales.Stiffness)).Append(',').Append(F(item.Candidate.Scales.Inertia)).Append(',')
                     .Append(F(item.Candidate.Scales.Gravity)).Append(',').Append(F(item.RmsError)).Append(',')
                     .Append(F(item.MaxError)).Append(',').Append(F(item.PeakReferenceDeflection)).Append(',')
@@ -470,7 +480,8 @@ namespace com.github.hkrn
             File.WriteAllText(path, csv.ToString(), new UTF8Encoding(false));
         }
 
-        private static void WriteMetadata(string path, VRCPhysBone physBone, int candidateCount)
+        private static void WriteMetadata(string path, VRCPhysBone physBone, int candidateCount,
+            VrmRootExporter.SpringBoneForceScales baselineScales)
         {
             var json = new StringBuilder();
             json.AppendLine("{");
@@ -483,6 +494,13 @@ namespace com.github.hkrn
             json.Append("  \"simulatedJointPairCount\": ")
                 .Append((4 * SegmentCountPerChain).ToString(CultureInfo.InvariantCulture)).AppendLine(",");
             json.Append("  \"candidateCount\": ").Append(candidateCount.ToString(CultureInfo.InvariantCulture)).AppendLine(",");
+            json.AppendLine("  \"baselineIncluded\": true,");
+            json.Append("  \"evaluationCount\": ").Append((candidateCount + 1).ToString(CultureInfo.InvariantCulture)).AppendLine(",");
+            json.AppendLine("  \"baselineScales\": {");
+            json.Append("    \"stiffness\": ").Append(F(baselineScales.Stiffness)).AppendLine(",");
+            json.Append("    \"inertia\": ").Append(F(baselineScales.Inertia)).AppendLine(",");
+            json.Append("    \"gravity\": ").Append(F(baselineScales.Gravity)).AppendLine();
+            json.AppendLine("  },");
             json.AppendLine("  \"physBone\": {");
             json.AppendLine("    \"version\": \"1.0\",");
             json.AppendLine("    \"integrationType\": \"Simplified\",");
@@ -492,14 +510,14 @@ namespace com.github.hkrn
             json.Append("    \"gravityFalloff\": ").Append(F(physBone.gravityFalloff)).AppendLine();
             json.AppendLine("  },");
             json.AppendLine("  \"scaleAxes\": {");
-            json.AppendLine("    \"stiffness\": [4, 8, 12, 16],");
-            json.AppendLine("    \"inertia\": [1, 2, 3, 4],");
+            json.AppendLine("    \"stiffness\": [12, 16, 20, 24],");
+            json.AppendLine("    \"inertia\": [2, 3, 4, 5],");
             json.AppendLine("    \"gravity\": [2, 5, 10, 20]");
             json.AppendLine("  },");
             json.AppendLine("  \"referenceAlgorithm\": \"https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_springBone-1.0/README.md#update-procedure\",");
             json.AppendLine("  \"settlingCriterion\": \"Candidate tail remains within 0.005m of the captured VRC terminal tail pose for all remaining samples.\",");
             json.AppendLine("  \"notes\": \"Synthetic four-panel skirt fixture; two consecutive measured segments per PhysBone chain. Candidate motion applies each updated head-node rotation before evaluating the next VRMC_springBone 1.0 joint pair. The fixture uses unit scale and world space. No colliders, limits, or additional body-motion scenarios are included.\",");
-            json.AppendLine("  \"artifacts\": [\"reference.csv\", \"candidate-001.csv through candidate-064.csv\", \"summary.csv\"]");
+            json.AppendLine("  \"artifacts\": [\"reference.csv\", \"baseline.csv\", \"candidate-001.csv through candidate-064.csv\", \"summary.csv\"]");
             json.AppendLine("}");
             File.WriteAllText(path, json.ToString(), new UTF8Encoding(false));
         }
@@ -511,16 +529,21 @@ namespace com.github.hkrn
             var best = candidates.OrderBy(item => item.RmsError).First();
             var text = new StringBuilder();
             text.AppendLine(settled.Count > 0
-                ? $"Best settled candidate by RMS position error: #{best.Candidate.Id:D3}"
-                : $"No candidate met the terminal-pose tolerance; best RMS candidate: #{best.Candidate.Id:D3}");
+                ? $"Best settled candidate by RMS position error: {CandidateLabel(best.Candidate)}"
+                : $"No candidate met the terminal-pose tolerance; best RMS candidate: {CandidateLabel(best.Candidate)}");
             text.AppendLine($"Stiffness scale: {F(best.Candidate.Scales.Stiffness)}");
             text.AppendLine($"Inertia scale: {F(best.Candidate.Scales.Inertia)}");
             text.AppendLine($"Gravity scale: {F(best.Candidate.Scales.Gravity)}");
             text.AppendLine($"RMS error: {F(best.RmsError)} m");
             text.AppendLine($"Maximum error: {F(best.MaxError)} m");
             text.AppendLine($"Settling time: {F(best.SettlingTime)} s (-1 means not settled)");
-            text.AppendLine($"Candidates meeting settling tolerance: {settled.Count}/{results.Count}");
+            text.AppendLine($"Candidates meeting settling tolerance: {settled.Count}/{results.Count} (64 grid candidates plus production baseline)");
             File.WriteAllText(path, text.ToString(), new UTF8Encoding(false));
+        }
+
+        private static string CandidateLabel(Candidate candidate)
+        {
+            return candidate.IsBaseline ? "production baseline" : $"#{candidate.Id:D3}";
         }
 
         private static string F(float value)
