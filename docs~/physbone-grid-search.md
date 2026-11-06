@@ -30,7 +30,7 @@ The full grid contains 64 candidates.
 
 The default production conversion uses Stiffness=4, Inertia=1, and Gravity=20. These are calibration scales, not constants prescribed by VRChat or the VRM specification. The default overload remains unchanged for normal exports.
 
-The production default is evaluated separately on every run as `baseline.csv`; it is not inserted into the search grid. The summary identifies this row as `baseline`. Each run therefore evaluates 64 grid candidates plus one production baseline (65 evaluations total). Candidate IDs are local to one grid definition and must not be compared across different search ranges.
+The production default is evaluated separately on every run as `baseline.csv`; it is not inserted into the search grid. The summary identifies this row as `baseline`. Each run therefore evaluates 64 grid candidates plus one production baseline (65 evaluations total). Candidate IDs are local to one grid definition and must not be compared across different search ranges. The metadata records the number of grid candidates as `candidateCount` and the total number of evaluations as `evaluationCount`.
 
 ## Running
 
