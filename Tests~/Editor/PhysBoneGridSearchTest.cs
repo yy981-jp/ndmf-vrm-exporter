@@ -26,25 +26,9 @@ namespace com.github.hkrn
         private const float ReferenceSettleTolerance = 0.001f;
         private const int SegmentCountPerChain = 4;
 
-        private static readonly float[] StiffnessScales = { 12.0f, 16.0f, 20.0f, 24.0f };
-        private static readonly float[] InertiaScales = { 2.0f, 3.0f, 4.0f, 5.0f };
+        private static readonly float[] StiffnessScales = { 4.0f, 8.0f, 12.0f, 16.0f };
+        private static readonly float[] InertiaScales = { 1.0f, 2.0f, 3.0f, 4.0f };
         private static readonly float[] GravityScales = { 2.0f, 5.0f, 10.0f, 20.0f };
-
-        private static readonly MotionScenario[] MotionScenarios =
-        {
-            new MotionScenario
-            {
-                Name = "lateral-roll",
-                Translation = new Vector3(0.14f, 0.0f, 0.0f),
-                RotationDegrees = new Vector3(0.0f, 0.0f, 8.0f),
-            },
-            new MotionScenario
-            {
-                Name = "vertical-forward-tilt",
-                Translation = new Vector3(0.0f, 0.06f, 0.12f),
-                RotationDegrees = new Vector3(7.0f, 5.0f, 0.0f),
-            },
-        };
 
         private sealed class MotionScenario
         {
@@ -142,12 +126,13 @@ namespace com.github.hkrn
 
             yield return new EnterPlayMode();
 
+            var scenarios = BuildMotionScenarios();
             Time.timeScale = 1.0f;
             Time.captureFramerate = SampleRate;
             Time.fixedDeltaTime = 1.0f / SampleRate;
 
-            var captures = new List<ScenarioCapture>(MotionScenarios.Length);
-            foreach (var scenario in MotionScenarios)
+            var captures = new List<ScenarioCapture>(scenarios.Length);
+            foreach (var scenario in scenarios)
             {
                 var avatar = CreateFixture(out var hips, out var chains);
                 var references = chains.Select(_ => new List<Sample>()).ToArray();
@@ -193,10 +178,32 @@ namespace com.github.hkrn
                 IsBaseline = true,
                 Scales = VrmRootExporter.SpringBoneForceScales.Default,
             };
-            results.Add(Evaluate(baseline, captures, output));
+            var baselineMetrics = Evaluate(baseline, captures, output);
+            results.Add(baselineMetrics);
 
             foreach (var candidate in candidates)
                 results.Add(Evaluate(candidate, captures, output));
+
+            var matchingGridResult = results.FirstOrDefault(item =>
+                !item.Candidate.IsBaseline
+                && Mathf.Approximately(item.Candidate.Scales.Stiffness, baseline.Scales.Stiffness)
+                && Mathf.Approximately(item.Candidate.Scales.Inertia, baseline.Scales.Inertia)
+                && Mathf.Approximately(item.Candidate.Scales.Gravity, baseline.Scales.Gravity));
+            Assert.That(matchingGridResult, Is.Not.Null,
+                "The current grid must include the production baseline scales for a consistency check.");
+            Assert.That(matchingGridResult.RmsError, Is.EqualTo(baselineMetrics.RmsError).Within(0.000001f));
+            Assert.That(matchingGridResult.MaxError, Is.EqualTo(baselineMetrics.MaxError).Within(0.000001f));
+            Assert.That(matchingGridResult.SettlingTime, Is.EqualTo(baselineMetrics.SettlingTime).Within(0.000001f));
+            Assert.That(matchingGridResult.Scenarios.Count, Is.EqualTo(baselineMetrics.Scenarios.Count));
+            for (var i = 0; i < matchingGridResult.Scenarios.Count; i++)
+            {
+                Assert.That(matchingGridResult.Scenarios[i].RmsError,
+                    Is.EqualTo(baselineMetrics.Scenarios[i].RmsError).Within(0.000001f));
+                Assert.That(matchingGridResult.Scenarios[i].MaxError,
+                    Is.EqualTo(baselineMetrics.Scenarios[i].MaxError).Within(0.000001f));
+                Assert.That(matchingGridResult.Scenarios[i].SettlingTime,
+                    Is.EqualTo(baselineMetrics.Scenarios[i].SettlingTime).Within(0.000001f));
+            }
 
             WriteSummary(Path.Combine(output, "summary.csv"), results);
             WriteScenarioSummary(Path.Combine(output, "scenario-summary.csv"), results);
@@ -222,6 +229,9 @@ namespace com.github.hkrn
                 result.Scenarios != null && result.Scenarios.Count == captures.Count), Is.True);
             Assert.That(File.ReadAllLines(Path.Combine(output, "scenario-summary.csv")).Length,
                 Is.EqualTo(1 + results.Count * captures.Count));
+            var bestText = File.ReadAllText(Path.Combine(output, "best-candidate.txt"));
+            Assert.That(bestText.Contains("Grid candidates meeting settling tolerance:"), Is.True);
+            Assert.That(bestText.Contains("Production baseline settling time:"), Is.True);
             Assert.That(peakReferenceMotion, Is.GreaterThan(0.0001f),
                 "PhysBone did not move in Play Mode. The reference capture is unusable.");
             Assert.That(File.Exists(Path.Combine(output, "reference.csv")), Is.True);
@@ -229,6 +239,25 @@ namespace com.github.hkrn
             Assert.That(File.Exists(Path.Combine(output, "scenario-summary.csv")), Is.True);
             Assert.That(File.Exists(Path.Combine(output, "baseline.csv")), Is.True);
             Assert.That(Directory.GetFiles(output, "candidate-*.csv").Length, Is.EqualTo(64));
+        }
+
+        private static MotionScenario[] BuildMotionScenarios()
+        {
+            return new[]
+            {
+                new MotionScenario
+                {
+                    Name = "lateral-roll",
+                    Translation = new Vector3(0.14f, 0.0f, 0.0f),
+                    RotationDegrees = new Vector3(0.0f, 0.0f, 8.0f),
+                },
+                new MotionScenario
+                {
+                    Name = "vertical-forward-tilt",
+                    Translation = new Vector3(0.0f, 0.06f, 0.12f),
+                    RotationDegrees = new Vector3(7.0f, 5.0f, 0.0f),
+                },
+            };
         }
 
         private static bool IsReferenceSettled(IReadOnlyList<Sample>[] references)
@@ -700,8 +729,8 @@ namespace com.github.hkrn
             json.Append("    \"gravityFalloff\": ").Append(F(physBone.gravityFalloff)).AppendLine();
             json.AppendLine("  },");
             json.AppendLine("  \"scaleAxes\": {");
-            json.AppendLine("    \"stiffness\": [12, 16, 20, 24],");
-            json.AppendLine("    \"inertia\": [2, 3, 4, 5],");
+            json.AppendLine("    \"stiffness\": [4, 8, 12, 16],");
+            json.AppendLine("    \"inertia\": [1, 2, 3, 4],");
             json.AppendLine("    \"gravity\": [2, 5, 10, 20]");
             json.AppendLine("  },");
             json.AppendLine("  \"referenceAlgorithm\": \"https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_springBone-1.0/README.md#update-procedure\",");
@@ -715,6 +744,9 @@ namespace com.github.hkrn
         private static void WriteBest(string path, IReadOnlyList<Metrics> results)
         {
             var settled = results.Where(item => item.SettlingTime >= 0.0f).ToList();
+            var gridCandidates = results.Where(item => !item.Candidate.IsBaseline).ToList();
+            var settledGridCount = gridCandidates.Count(item => item.SettlingTime >= 0.0f);
+            var baseline = results.FirstOrDefault(item => item.Candidate.IsBaseline);
             var candidates = settled.Count > 0 ? settled : results.ToList();
             var best = candidates.OrderBy(item => item.RmsError).First();
             var text = new StringBuilder();
@@ -727,7 +759,9 @@ namespace com.github.hkrn
             text.AppendLine($"RMS error: {F(best.RmsError)} m");
             text.AppendLine($"Maximum error: {F(best.MaxError)} m");
             text.AppendLine($"Settling time: {F(best.SettlingTime)} s (-1 means not settled)");
-            text.AppendLine($"Candidates meeting settling tolerance: {settled.Count}/{results.Count} (64 grid candidates plus production baseline)");
+            text.AppendLine($"Grid candidates meeting settling tolerance: {settledGridCount}/{gridCandidates.Count}");
+            if (baseline != null)
+                text.AppendLine($"Production baseline settling time: {F(baseline.SettlingTime)} s (-1 means not settled)");
             File.WriteAllText(path, text.ToString(), new UTF8Encoding(false));
         }
 
