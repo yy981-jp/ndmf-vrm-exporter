@@ -111,6 +111,16 @@ namespace com.github.hkrn
             public VrmRootExporter.SpringBoneForceScales Scales;
         }
 
+        private sealed class ScenarioMetrics
+        {
+            public string Name;
+            public float RmsError;
+            public float MaxError;
+            public float PeakReferenceDeflection;
+            public float PeakCandidateDeflection;
+            public float SettlingTime;
+        }
+
         private sealed class Metrics
         {
             public Candidate Candidate;
@@ -119,6 +129,7 @@ namespace com.github.hkrn
             public float PeakReferenceDeflection;
             public float PeakCandidateDeflection;
             public float SettlingTime;
+            public List<ScenarioMetrics> Scenarios;
         }
 
         [UnityTest]
@@ -188,6 +199,7 @@ namespace com.github.hkrn
                 results.Add(Evaluate(candidate, captures, output));
 
             WriteSummary(Path.Combine(output, "summary.csv"), results);
+            WriteScenarioSummary(Path.Combine(output, "scenario-summary.csv"), results);
             WriteMetadata(Path.Combine(output, "metadata.json"), captures, candidates.Count, baseline.Scales);
             WriteBest(Path.Combine(output, "best-candidate.txt"), results);
 
@@ -210,6 +222,7 @@ namespace com.github.hkrn
                 "PhysBone did not move in Play Mode. The reference capture is unusable.");
             Assert.That(File.Exists(Path.Combine(output, "reference.csv")), Is.True);
             Assert.That(File.Exists(Path.Combine(output, "summary.csv")), Is.True);
+            Assert.That(File.Exists(Path.Combine(output, "scenario-summary.csv")), Is.True);
             Assert.That(File.Exists(Path.Combine(output, "baseline.csv")), Is.True);
             Assert.That(Directory.GetFiles(output, "candidate-*.csv").Length, Is.EqualTo(64));
         }
@@ -359,11 +372,17 @@ namespace com.github.hkrn
             var peakReference = 0.0f;
             var peakCandidate = 0.0f;
             List<Vector3>[][][] candidateTracks = new List<Vector3>[captures.Count][][];
+            var scenarioMetrics = new List<ScenarioMetrics>(captures.Count);
 
             for (var scenarioIndex = 0; scenarioIndex < captures.Count; scenarioIndex++)
             {
                 var capture = captures[scenarioIndex];
                 var scenarioTracks = new List<Vector3>[capture.Chains.Count][];
+                double scenarioSquaredError = 0.0;
+                var scenarioSampleCount = 0;
+                var scenarioMaxError = 0.0f;
+                var scenarioPeakReference = 0.0f;
+                var scenarioPeakCandidate = 0.0f;
 
                 for (var chainIndex = 0; chainIndex < capture.Chains.Count; chainIndex++)
                 {
@@ -433,17 +452,23 @@ namespace com.github.hkrn
                             var error = Vector3.Distance(nextTail, sample.ReferenceTails[segment]);
                             squaredError += error * error;
                             sampleCount++;
+                            scenarioSampleCount++;
+                            scenarioSquaredError += error * error;
                             maxError = Mathf.Max(maxError, error);
+                            scenarioMaxError = Mathf.Max(scenarioMaxError, error);
 
                             var referenceRestDirection = sample.ParentRotations[segment]
                                 * initialLocalRotation * boneAxis;
                             var referenceRestTail = sample.Anchors[segment]
                                 + referenceRestDirection * boneLength;
-                            peakReference = Mathf.Max(peakReference,
-                                Vector3.Distance(sample.ReferenceTails[segment], referenceRestTail));
+                            var referenceDeflection = Vector3.Distance(
+                                sample.ReferenceTails[segment], referenceRestTail);
+                            peakReference = Mathf.Max(peakReference, referenceDeflection);
+                            scenarioPeakReference = Mathf.Max(scenarioPeakReference, referenceDeflection);
                             var candidateRestTail = headPosition + restDirection * boneLength;
-                            peakCandidate = Mathf.Max(peakCandidate,
-                                Vector3.Distance(nextTail, candidateRestTail));
+                            var candidateDeflection = Vector3.Distance(nextTail, candidateRestTail);
+                            peakCandidate = Mathf.Max(peakCandidate, candidateDeflection);
+                            scenarioPeakCandidate = Mathf.Max(scenarioPeakCandidate, candidateDeflection);
 
                             csv.Append(capture.Scenario.Name).Append(',')
                                 .Append(frame.ToString(CultureInfo.InvariantCulture)).Append(',')
@@ -464,6 +489,18 @@ namespace com.github.hkrn
                 }
 
                 candidateTracks[scenarioIndex] = scenarioTracks;
+                scenarioMetrics.Add(new ScenarioMetrics
+                {
+                    Name = capture.Scenario.Name,
+                    RmsError = scenarioSampleCount == 0
+                        ? 0.0f
+                        : Mathf.Sqrt((float)(scenarioSquaredError / scenarioSampleCount)),
+                    MaxError = scenarioMaxError,
+                    PeakReferenceDeflection = scenarioPeakReference,
+                    PeakCandidateDeflection = scenarioPeakCandidate,
+                    SettlingTime = FindScenarioSettlingTime(
+                        capture.References, scenarioTracks, capture.Scenario.ImpulseEndTime),
+                });
             }
 
             metrics.RmsError = sampleCount == 0 ? 0.0f : Mathf.Sqrt((float)(squaredError / sampleCount));
@@ -471,6 +508,7 @@ namespace com.github.hkrn
             metrics.PeakReferenceDeflection = peakReference;
             metrics.PeakCandidateDeflection = peakCandidate;
             metrics.SettlingTime = FindSettlingTime(captures, candidateTracks);
+            metrics.Scenarios = scenarioMetrics;
             var fileName = candidate.IsBaseline ? "baseline.csv"
                 : "candidate-" + candidate.Id.ToString("D3", CultureInfo.InvariantCulture) + ".csv";
             File.WriteAllText(Path.Combine(outputDirectory, fileName),
@@ -580,6 +618,24 @@ namespace com.github.hkrn
             File.WriteAllText(path, csv.ToString(), new UTF8Encoding(false));
         }
 
+        private static void WriteScenarioSummary(string path, IReadOnlyList<Metrics> results)
+        {
+            var csv = new StringBuilder();
+            csv.AppendLine("candidateId,scenario,rmsErrorMeters,maxErrorMeters,peakReferenceDeflectionMeters,peakCandidateDeflectionMeters,settlingTimeSeconds");
+            foreach (var item in results)
+            foreach (var scenario in item.Scenarios)
+            {
+                csv.Append(item.Candidate.IsBaseline ? "baseline" : item.Candidate.Id.ToString(CultureInfo.InvariantCulture)).Append(',')
+                    .Append(scenario.Name).Append(',')
+                    .Append(F(scenario.RmsError)).Append(',')
+                    .Append(F(scenario.MaxError)).Append(',')
+                    .Append(F(scenario.PeakReferenceDeflection)).Append(',')
+                    .Append(F(scenario.PeakCandidateDeflection)).Append(',')
+                    .Append(F(scenario.SettlingTime)).AppendLine();
+            }
+            File.WriteAllText(path, csv.ToString(), new UTF8Encoding(false));
+        }
+
         private static void WriteMetadata(
             string path,
             IReadOnlyList<ScenarioCapture> captures,
@@ -647,7 +703,7 @@ namespace com.github.hkrn
             json.AppendLine("  \"referenceAlgorithm\": \"https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_springBone-1.0/README.md#update-procedure\",");
             json.AppendLine("  \"settlingCriterion\": \"Candidate tails remain within 0.005m of the captured VRC terminal tail poses for all remaining samples in every scenario.\",");
             json.AppendLine("  \"notes\": \"Synthetic four-panel skirt fixture with four consecutive measured segments per chain and two independent body-motion scenarios. Candidate motion applies each updated head-node rotation before evaluating the next VRMC_springBone 1.0 joint pair. The fixtures use unit scale and world space. No colliders, limits, or non-unit scale cases are included.\",");
-            json.AppendLine("  \"artifacts\": [\"reference.csv\", \"baseline.csv\", \"candidate-001.csv through candidate-064.csv\", \"summary.csv\"]");
+            json.AppendLine("  \"artifacts\": [\"reference.csv\", \"baseline.csv\", \"candidate-001.csv through candidate-064.csv\", \"summary.csv\", \"scenario-summary.csv\"]");
             json.AppendLine("}");
             File.WriteAllText(path, json.ToString(), new UTF8Encoding(false));
         }
