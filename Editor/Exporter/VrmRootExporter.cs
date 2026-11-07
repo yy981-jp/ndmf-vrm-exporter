@@ -2104,14 +2104,14 @@ namespace com.github.hkrn
                 var gravity = EvaluateCurve(pb.gravityCurve, pb.gravity, depthRatio);
                 var falloff = EvaluateCurve(pb.gravityFalloffCurve, pb.gravityFalloff, depthRatio);
                 var stiffness = EvaluateCurve(pb.stiffnessCurve, pb.stiffness, depthRatio);
-                var spring = EvaluateCurve(pb.springCurve, pb.spring, depthRatio);
+                var springValue = EvaluateCurve(pb.springCurve, pb.spring, depthRatio);
                 var hitRadius = EvaluateCurve(pb.radiusCurve, pb.radius, depthRatio);
                 var pull = EvaluateCurve(pb.pullCurve, pb.pull, depthRatio);
                 var forces = ConvertSpringBoneForces(
                     pb.version,
                     pb.integrationType,
                     pull,
-                    spring,
+                    springValue,
                     stiffness,
                     gravity,
                     falloff
