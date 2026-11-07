@@ -162,7 +162,6 @@ namespace com.github.hkrn
 
         [NotKeyable] [SerializeField] internal List<AnimationClip> humanoidAnimations = new();
 
-        [NotKeyable] [SerializeField] internal bool experimentalEnableSpringBoneLimit;
 
         // from 1.4.0
         [NotKeyable] [SerializeField] internal bool previewFoldout;
@@ -175,7 +174,6 @@ namespace com.github.hkrn
 
         public bool HasAvatarRoot => RuntimeUtil.IsAvatarRoot(gameObject.transform);
 
-        public bool IsSpringBoneLimitEnabled => experimentalEnableSpringBoneLimit;
 
         // ReSharper disable once Unity.RedundantEventFunction
         private void Start()
@@ -244,7 +242,6 @@ namespace com.github.hkrn
         // from 1.3.0
         private SerializedProperty _animationFoldoutProp = null!;
         private SerializedProperty _humanoidAnimationsProp = null!;
-        private SerializedProperty _experimentalEnableSpringBoneLimit = null!;
 
         // from 1.4.0
         private SerializedProperty _previewFoldoutProp = null!;
@@ -324,8 +321,6 @@ namespace com.github.hkrn
                 serializedObject.FindProperty(nameof(NdmfVrmExporterComponent.excludedSpringBoneColliderTransforms));
             _excludedSpringBoneTransformsProp =
                 serializedObject.FindProperty(nameof(NdmfVrmExporterComponent.excludedSpringBoneTransforms));
-            _experimentalEnableSpringBoneLimit =
-                serializedObject.FindProperty(nameof(NdmfVrmExporterComponent.experimentalEnableSpringBoneLimit));
             _constraintFoldoutProp = serializedObject.FindProperty(nameof(NdmfVrmExporterComponent.constraintFoldout));
             _excludedConstraintTransformsProp =
                 serializedObject.FindProperty(nameof(NdmfVrmExporterComponent.excludedConstraintTransforms));
@@ -878,8 +873,6 @@ namespace com.github.hkrn
             EditorGUILayout.PropertyField(_excludedSpringBoneTransformsProp,
                 new GUIContent(Translator._("component.spring-bone.exclude.bones")));
             EditorGUI.indentLevel--;
-            DrawToggleLeft(Translator._("component.spring-bone.experimental-enable-limit"),
-                _experimentalEnableSpringBoneLimit);
         }
 
         private void DrawConstraintOptions()

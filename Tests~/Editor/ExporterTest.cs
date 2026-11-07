@@ -1807,6 +1807,7 @@ namespace com.github.hkrn
                 var physBone = rootNode.AddComponent<VRCPhysBone>();
                 physBone.version = VRCPhysBoneBase.Version.Version_1_0;
                 physBone.integrationType = VRCPhysBoneBase.IntegrationType.Simplified;
+                physBone.limitType = VRCPhysBoneBase.LimitType.None;
                 physBone.gravity = 0.04f;
                 physBone.spring = 0.5f;
                 physBone.radius = 0.5f;
@@ -1831,6 +1832,78 @@ namespace com.github.hkrn
             Assert.That(joint.GravityPower, Is.EqualTo(0.2f).Within(0.0001f));
             Assert.That(joint.GravityDir, Is.EqualTo(-System.Numerics.Vector3.UnitY));
             Assert.That(extensionUsed, Is.Empty);
+        }
+
+
+        [TestCase(VRCPhysBoneBase.LimitType.Angle, "cone")]
+        [TestCase(VRCPhysBoneBase.LimitType.Hinge, "hinge")]
+        [TestCase(VRCPhysBoneBase.LimitType.Polar, "spherical")]
+        public void ExportPhysBoneLimit(VRCPhysBoneBase.LimitType limitType, string expectedLimitType)
+        {
+            var root = CreateRootGameObject();
+            root.AddComponent<NdmfVrmExporterComponent>();
+            var assetSaver = new NullAssetSaver();
+            var nodes = new Dictionary<Transform, gltf.ObjectID>();
+            var springRoot = new GameObject
+            {
+                name = "SpringRoot",
+                transform =
+                {
+                    parent = root.transform
+                }
+            };
+            var physBone = springRoot.AddComponent<VRCPhysBone>();
+            physBone.version = VRCPhysBoneBase.Version.Version_1_0;
+            physBone.integrationType = VRCPhysBoneBase.IntegrationType.Simplified;
+            physBone.limitType = limitType;
+            physBone.maxAngleX = 30.0f;
+            physBone.maxAngleZ = 45.0f;
+            physBone.limitRotation = new Vector3(5.0f, 10.0f, 15.0f);
+            nodes.Add(springRoot.transform, new gltf.ObjectID(42));
+
+            var extensionUsed = new HashSet<string>();
+            var exporter = new VrmRootExporter(
+                root,
+                assetSaver,
+                nodes,
+                new Dictionary<string, (gltf.ObjectID, int)>(),
+                extensionUsed
+            );
+
+            var springBone = exporter.ExportSpringBone();
+            Assert.That(springBone.Springs, Is.Not.Null);
+            Assert.That(springBone.Springs, Has.Count.EqualTo(1));
+            Assert.That(springBone.Springs![0].Joints, Has.Count.EqualTo(1));
+
+            var joint = springBone.Springs[0].Joints[0];
+            Assert.That(joint.Extensions, Is.Not.Null);
+            Assert.That(
+                joint.Extensions!.TryGetValue("VRMC_springBone_limit", out var extension),
+                Is.True
+            );
+
+            var extensionJson = JObject.Parse(extension!.ToString());
+            Assert.That(extensionJson.Value<string>("specVersion"), Is.EqualTo("1.0-draft"));
+            var limit = extensionJson["limit"] as JObject;
+            Assert.That(limit, Is.Not.Null);
+            var shape = limit![expectedLimitType] as JObject;
+            Assert.That(shape, Is.Not.Null);
+
+            var angle = expectedLimitType == "spherical"
+                ? shape!.Value<float>("pitch")
+                : shape!.Value<float>("angle");
+            Assert.That(angle, Is.EqualTo(Mathf.Deg2Rad * 30.0f).Within(0.0001f));
+
+            if (expectedLimitType == "spherical")
+            {
+                Assert.That(
+                    shape!.Value<float>("yaw"),
+                    Is.EqualTo(Mathf.Deg2Rad * 45.0f).Within(0.0001f)
+                );
+            }
+
+            Assert.That(shape!["rotation"], Is.Not.Null);
+            Assert.That(extensionUsed, Does.Contain("VRMC_springBone_limit"));
         }
 
         [Test]

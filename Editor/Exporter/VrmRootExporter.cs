@@ -2124,7 +2124,7 @@ namespace com.github.hkrn
                         GravityDir = forces.GravityDir,
                         DragForce = forces.DragForce,
                     };
-                    var limit = component.IsSpringBoneLimitEnabled ? ConvertSpringLimit(pb, depthRatio) : null;
+                    var limit = ConvertSpringLimit(pb, depthRatio);
                     if (limit == null)
                     {
                         return joint;
