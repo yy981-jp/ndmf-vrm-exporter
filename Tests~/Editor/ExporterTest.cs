@@ -1818,27 +1818,38 @@ namespace com.github.hkrn
             var exporter = new VrmRootExporter(root, assetSaver, nodes, allMorphTargets, extensionUsed);
             var sb = exporter.ExportSpringBone();
             Assert.That(sb.Springs, Is.Not.Null);
-            Assert.That(JsonConvert.SerializeObject(sb.Springs), Is.EqualTo(JsonConvert.SerializeObject(
-                new List<vrm.sb.Spring>
-                {
-                    new()
-                    {
-                        Name = new gltf.UnicodeString($"Node{nodeId.ID}"),
-                        Joints = new List<vrm.sb.Joint>
-                        {
-                            new()
-                            {
-                                Node = nodeId,
-                                HitRadius = 0.5f,
-                                Stiffness = 0.84f,
-                                DragForce = 0.79f,
-                                GravityPower = 0.8f,
-                                GravityDir = -System.Numerics.Vector3.UnitY
-                            }
-                        }
-                    }
-                })));
+            Assert.That(sb.Springs, Has.Count.EqualTo(1));
+            var spring = sb.Springs[0];
+            Assert.That(JsonConvert.SerializeObject(spring.Name), Is.EqualTo(
+                JsonConvert.SerializeObject(new gltf.UnicodeString($"Node{nodeId.ID}"))));
+            Assert.That(spring.Joints, Has.Count.EqualTo(1));
+            var joint = spring.Joints[0];
+            Assert.That(joint.Node.ID, Is.EqualTo(nodeId.ID));
+            Assert.That(joint.HitRadius, Is.EqualTo(0.5f).Within(0.0001f));
+            Assert.That(joint.Stiffness, Is.EqualTo(1.68f).Within(0.0001f));
+            Assert.That(joint.DragForce, Is.EqualTo(0.37f).Within(0.0001f));
+            Assert.That(joint.GravityPower, Is.EqualTo(0.2f).Within(0.0001f));
+            Assert.That(joint.GravityDir, Is.EqualTo(-System.Numerics.Vector3.UnitY));
             Assert.That(extensionUsed, Is.Empty);
+        }
+
+        [Test]
+        public void ConvertPhysBoneForcesV10SimplifiedUsesCalibratedDefaults()
+        {
+            var forces = VrmRootExporter.ConvertSpringBoneForces(
+                VRCPhysBoneBase.Version.Version_1_0,
+                VRCPhysBoneBase.IntegrationType.Simplified,
+                0.42f,
+                0.5f,
+                0.9f,
+                0.04f,
+                0.0f
+            );
+
+            Assert.That(forces.Stiffness, Is.EqualTo(1.68f).Within(0.0001f));
+            Assert.That(forces.DragForce, Is.EqualTo(0.37f).Within(0.0001f));
+            Assert.That(forces.GravityPower, Is.EqualTo(0.2f).Within(0.0001f));
+            Assert.That(forces.GravityDir, Is.EqualTo(-System.Numerics.Vector3.UnitY));
         }
 
         [Test]
@@ -1923,6 +1934,188 @@ namespace com.github.hkrn
                 Is.Empty);
         }
 
+#if NVE_HAS_GLOBAL_PHYSBONE_COLLISION
+        [Test]
+        public void ExportPhysBoneGlobalColliderRequiresAvatarScope()
+        {
+            var colliderObject = new GameObject("GlobalCollider");
+            var collider = colliderObject.AddComponent<VRCPhysBoneCollider>();
+            collider.shapeType = VRCPhysBoneColliderBase.ShapeType.Sphere;
+
+            SetGlobalColliderScope(collider, "Avatar");
+            Assert.That(VrmRootExporter.IsAvatarGlobalCollider(collider), Is.True);
+
+            SetGlobalColliderScope(collider, "World");
+            Assert.That(VrmRootExporter.IsAvatarGlobalCollider(collider), Is.False);
+
+            SetGlobalColliderScope(collider, "Avatar");
+            collider.shapeType = VRCPhysBoneColliderBase.ShapeType.Plane;
+            Assert.That(VrmRootExporter.IsAvatarGlobalCollider(collider), Is.False);
+
+            UnityEngine.Object.DestroyImmediate(colliderObject);
+        }
+
+        [Test]
+        public void ExportPhysBoneGlobalCollisionRespectsAllowCollision()
+        {
+            var root = CreateRootGameObject();
+            var physBoneObject = new GameObject { transform = { parent = root.transform } };
+            var physBone = physBoneObject.AddComponent<VRCPhysBone>();
+
+            physBone.allowCollision = VRCPhysBoneBase.AdvancedBool.True;
+            Assert.That(VrmRootExporter.AllowsSelfGlobalCollision(physBone), Is.True);
+
+            physBone.allowCollision = VRCPhysBoneBase.AdvancedBool.False;
+            Assert.That(VrmRootExporter.AllowsSelfGlobalCollision(physBone), Is.False);
+
+            physBone.allowCollision = VRCPhysBoneBase.AdvancedBool.Other;
+            physBone.collisionFilter = new VRCPhysBoneBase.PermissionFilter(
+                true, DynamicsUsageFlags.Avatar);
+            Assert.That(VrmRootExporter.AllowsSelfGlobalCollision(physBone), Is.True);
+
+            physBone.collisionFilter = new VRCPhysBoneBase.PermissionFilter(
+                false, DynamicsUsageFlags.Avatar);
+            Assert.That(VrmRootExporter.AllowsSelfGlobalCollision(physBone), Is.False);
+
+            physBone.collisionFilter = new VRCPhysBoneBase.PermissionFilter(
+                true, DynamicsUsageFlags.World);
+            Assert.That(VrmRootExporter.AllowsSelfGlobalCollision(physBone), Is.False);
+
+            UnityEngine.Object.DestroyImmediate(root);
+        }
+
+        [Test]
+        public void ExportPhysBoneMergesGlobalAndExplicitCollidersWithoutDuplicates()
+        {
+            var root = CreateRootGameObject();
+            var physBoneObject = new GameObject { transform = { parent = root.transform } };
+            var physBone = physBoneObject.AddComponent<VRCPhysBone>();
+
+            var explicitObject = new GameObject { transform = { parent = root.transform } };
+            var sharedGlobalObject = new GameObject { transform = { parent = root.transform } };
+            var globalOnlyObject = new GameObject { transform = { parent = root.transform } };
+            var explicitCollider = explicitObject.AddComponent<VRCPhysBoneCollider>();
+            var sharedGlobalCollider = sharedGlobalObject.AddComponent<VRCPhysBoneCollider>();
+            var globalOnlyCollider = globalOnlyObject.AddComponent<VRCPhysBoneCollider>();
+
+            physBone.colliders.Add(explicitCollider);
+            physBone.colliders.Add(sharedGlobalCollider);
+
+            var allColliders = System.Collections.Immutable.ImmutableList.CreateRange<
+                VRCPhysBoneColliderBase>(new VRCPhysBoneColliderBase[]
+            {
+                explicitCollider,
+                sharedGlobalCollider,
+                globalOnlyCollider,
+            });
+            var globalColliders = System.Collections.Immutable.ImmutableList.CreateRange<
+                VRCPhysBoneColliderBase>(new VRCPhysBoneColliderBase[]
+            {
+                sharedGlobalCollider,
+                globalOnlyCollider,
+            });
+
+            physBone.allowCollision = VRCPhysBoneBase.AdvancedBool.True;
+            var result = VrmRootExporter.GetSpringBoneColliderIDs(
+                physBone, allColliders, globalColliders);
+            Assert.That(result, Is.EqualTo(new List<gltf.ObjectID>
+            {
+                new(0), new(1), new(2),
+            }));
+
+            physBone.allowCollision = VRCPhysBoneBase.AdvancedBool.False;
+            result = VrmRootExporter.GetSpringBoneColliderIDs(
+                physBone, allColliders, globalColliders);
+            Assert.That(result, Is.EqualTo(new List<gltf.ObjectID>
+            {
+                new(0), new(1),
+            }));
+
+            UnityEngine.Object.DestroyImmediate(root);
+        }
+
+        private static void SetGlobalColliderScope(VRCPhysBoneCollider collider, string scopeName)
+        {
+            var flagsMember = FindReflectedMember(collider.GetType(), "globalCollisionFlags");
+            if (flagsMember == null)
+            {
+                Assert.Ignore("This VRC SDK does not expose globalCollisionFlags.");
+            }
+
+            var flagsType = flagsMember is System.Reflection.FieldInfo field
+                ? field.FieldType
+                : ((System.Reflection.PropertyInfo)flagsMember).PropertyType;
+            if (!flagsType.IsEnum)
+            {
+                Assert.Ignore("Global Collision scope is not represented by an enum in this SDK.");
+            }
+
+            var scopeValue = FindScopeEnumValue(flagsType, scopeName);
+            if (scopeValue == null)
+            {
+                Assert.Ignore($"This VRC SDK does not expose the '{scopeName}' Global Collision scope.");
+            }
+
+            Assert.That(TrySetReflectedMember(collider, "globalCollisionFlags", scopeValue), Is.True);
+
+            // Some SDK revisions expose this as a writable boolean; others derive it from the flags.
+            TrySetReflectedMember(collider, "isGlobalCollider", true);
+        }
+
+        private static object FindScopeEnumValue(System.Type enumType, string scopeName)
+        {
+            foreach (var name in System.Enum.GetNames(enumType))
+            {
+                if (name.IndexOf(scopeName, System.StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    name.IndexOf("Other", System.StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    return System.Enum.Parse(enumType, name);
+                }
+            }
+
+            Assert.Fail($"This VRC SDK does not expose the '{scopeName}' Global Collision scope.");
+            return null;
+        }
+
+        private static System.Reflection.MemberInfo FindReflectedMember(System.Type type, string name)
+        {
+            const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+            for (var current = type; current != null; current = current.BaseType)
+            {
+                var field = current.GetField(name, flags | System.Reflection.BindingFlags.DeclaredOnly);
+                if (field != null)
+                {
+                    return field;
+                }
+
+                var property = current.GetProperty(name, flags | System.Reflection.BindingFlags.DeclaredOnly);
+                if (property != null)
+                {
+                    return property;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool TrySetReflectedMember(object target, string name, object value)
+        {
+            var member = FindReflectedMember(target.GetType(), name);
+            switch (member)
+            {
+                case System.Reflection.FieldInfo field:
+                    field.SetValue(target, value);
+                    return true;
+                case System.Reflection.PropertyInfo property when property.GetSetMethod(true) != null:
+                    property.SetValue(target, value);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+#endif // NVE_HAS_GLOBAL_PHYSBONE_COLLISION
+
         [Test]
         public void ExportPhysBoneMultiple()
         {
@@ -1983,45 +2176,45 @@ namespace com.github.hkrn
                             {
                                 Node = nodeId,
                                 HitRadius = 0,
-                                Stiffness = 0,
-                                DragForce = 0,
-                                GravityPower = 0,
+                                Stiffness = 0.0f,
+                                DragForce = 1.0f,
+                                GravityPower = 0.0f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 1),
                                 HitRadius = 0.25f,
-                                Stiffness = 0.25f,
+                                Stiffness = 0.5f,
                                 DragForce = 1,
-                                GravityPower = 0.25f,
+                                GravityPower = 0.0625f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 2),
                                 HitRadius = 0.5f,
-                                Stiffness = 0.5f,
+                                Stiffness = 1.0f,
                                 DragForce = 1,
-                                GravityPower = 0.5f,
+                                GravityPower = 0.125f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 3),
                                 HitRadius = 0.75f,
-                                Stiffness = 0.75f,
+                                Stiffness = 1.5f,
                                 DragForce = 1,
-                                GravityPower = 0.75f,
+                                GravityPower = 0.1875f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 4),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             }
                         }
@@ -2108,18 +2301,18 @@ namespace com.github.hkrn
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 1),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 2),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             }
                         }
@@ -2133,18 +2326,18 @@ namespace com.github.hkrn
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 3),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 4),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             }
                         }
@@ -2232,27 +2425,27 @@ namespace com.github.hkrn
                             {
                                 Node = new gltf.ObjectID(nodeId.ID),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 1),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 2),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             }
                         }
@@ -2266,18 +2459,18 @@ namespace com.github.hkrn
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 3),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 4),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             }
                         }

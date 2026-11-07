@@ -2,9 +2,10 @@ name: GameCI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop, feature/physbone-grid-search]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
+  workflow_dispatch:
 
 permissions: {}
 
@@ -43,13 +44,14 @@ jobs:
           vrc-get install -y jp.lilxyzw.liltoon
           vrc-get install -y jp.lilxyzw.lilycalinventory
           vrc-get install -y nadena.dev.modular-avatar
-      - name: Retrieve cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore Unity Library cache
+        id: unity-library-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: Library
-          key: Library-unity-${{ env.UNITY_VERSION }}
+          key: Library-${{ runner.os }}-unity-${{ env.UNITY_VERSION }}-${{ hashFiles('Packages/manifest.json', 'Packages/packages-lock.json', 'Packages/vpm-manifest.json', 'ProjectSettings/ProjectVersion.txt') }}
           restore-keys: |
-            Library-unity-${{ env.UNITY_VERSION }}
+            Library-${{ runner.os }}-unity-${{ env.UNITY_VERSION }}-
       - name: Run all tests
         id: runAllTests
         # https://github.com/orgs/community/discussions/26829
@@ -65,10 +67,25 @@ jobs:
           unityVersion: ${{ env.UNITY_VERSION }}
           coverageOptions: generateAdditionalMetrics;generateHtmlReport;generateBadgeReport;assemblyFilters:+com.github.hkrn.*
           customParameters: -assemblyNames com.github.hkrn.NDMFVRMExporterTests
+      - name: Save Unity Library cache
+        if: ${{ always() && steps.unity-library-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Library
+          key: ${{ steps.unity-library-cache.outputs.cache-primary-key }}
       - name: Uploads test run result
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: Test results
-          path: ${{ steps.runAllTests.outputs.coveragePath }}
-          retention-days: 3
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Uploads PhysBone grid search results
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: PhysBone grid search results
+          path: PhysBoneGridSearchResults/
+          if-no-files-found: warn
+          retention-days: 14
