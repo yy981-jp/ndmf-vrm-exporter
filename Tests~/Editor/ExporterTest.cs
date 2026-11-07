@@ -1935,6 +1935,185 @@ namespace com.github.hkrn
         }
 
         [Test]
+        public void ExportPhysBoneGlobalColliderRequiresAvatarScope()
+        {
+            var colliderObject = new GameObject("GlobalCollider");
+            var collider = colliderObject.AddComponent<VRCPhysBoneCollider>();
+            collider.shapeType = VRCPhysBoneColliderBase.ShapeType.Sphere;
+
+            SetGlobalColliderScope(collider, "Avatar");
+            Assert.That(VrmRootExporter.IsAvatarGlobalCollider(collider), Is.True);
+
+            SetGlobalColliderScope(collider, "World");
+            Assert.That(VrmRootExporter.IsAvatarGlobalCollider(collider), Is.False);
+
+            SetGlobalColliderScope(collider, "Avatar");
+            collider.shapeType = VRCPhysBoneColliderBase.ShapeType.Plane;
+            Assert.That(VrmRootExporter.IsAvatarGlobalCollider(collider), Is.False);
+
+            UnityEngine.Object.DestroyImmediate(colliderObject);
+        }
+
+        [Test]
+        public void ExportPhysBoneGlobalCollisionRespectsAllowCollision()
+        {
+            var root = CreateRootGameObject();
+            var physBoneObject = new GameObject { transform = { parent = root.transform } };
+            var physBone = physBoneObject.AddComponent<VRCPhysBone>();
+
+            Assert.That(VrmRootExporter.AllowsSelfGlobalCollision(physBone), Is.True,
+                "The default Allow Collision mode should permit global colliders.");
+
+            physBone.allowCollision = VRCPhysBoneBase.AdvancedBool.False;
+            Assert.That(VrmRootExporter.AllowsSelfGlobalCollision(physBone), Is.False);
+
+            physBone.allowCollision = VRCPhysBoneBase.AdvancedBool.Other;
+            physBone.collisionFilter = new VRCPhysBoneBase.PermissionFilter(
+                true, DynamicsUsageFlags.Avatar);
+            Assert.That(VrmRootExporter.AllowsSelfGlobalCollision(physBone), Is.True);
+
+            physBone.collisionFilter = new VRCPhysBoneBase.PermissionFilter(
+                false, DynamicsUsageFlags.Avatar);
+            Assert.That(VrmRootExporter.AllowsSelfGlobalCollision(physBone), Is.False);
+
+            physBone.collisionFilter = new VRCPhysBoneBase.PermissionFilter(
+                true, DynamicsUsageFlags.World);
+            Assert.That(VrmRootExporter.AllowsSelfGlobalCollision(physBone), Is.False);
+
+            UnityEngine.Object.DestroyImmediate(root);
+        }
+
+        [Test]
+        public void ExportPhysBoneMergesGlobalAndExplicitCollidersWithoutDuplicates()
+        {
+            var root = CreateRootGameObject();
+            var physBoneObject = new GameObject { transform = { parent = root.transform } };
+            var physBone = physBoneObject.AddComponent<VRCPhysBone>();
+
+            var explicitObject = new GameObject { transform = { parent = root.transform } };
+            var sharedGlobalObject = new GameObject { transform = { parent = root.transform } };
+            var globalOnlyObject = new GameObject { transform = { parent = root.transform } };
+            var explicitCollider = explicitObject.AddComponent<VRCPhysBoneCollider>();
+            var sharedGlobalCollider = sharedGlobalObject.AddComponent<VRCPhysBoneCollider>();
+            var globalOnlyCollider = globalOnlyObject.AddComponent<VRCPhysBoneCollider>();
+
+            physBone.colliders.Add(explicitCollider);
+            physBone.colliders.Add(sharedGlobalCollider);
+
+            var allColliders = System.Collections.Immutable.ImmutableList.CreateRange<
+                VRCPhysBoneColliderBase>(new VRCPhysBoneColliderBase[]
+            {
+                explicitCollider,
+                sharedGlobalCollider,
+                globalOnlyCollider,
+            });
+            var globalColliders = System.Collections.Immutable.ImmutableList.CreateRange<
+                VRCPhysBoneColliderBase>(new VRCPhysBoneColliderBase[]
+            {
+                sharedGlobalCollider,
+                globalOnlyCollider,
+            });
+
+            physBone.allowCollision = VRCPhysBoneBase.AdvancedBool.True;
+            var result = VrmRootExporter.GetSpringBoneColliderIDs(
+                physBone, allColliders, globalColliders);
+            Assert.That(result, Is.EqualTo(new List<gltf.ObjectID>
+            {
+                new(0), new(1), new(2),
+            }));
+
+            physBone.allowCollision = VRCPhysBoneBase.AdvancedBool.False;
+            result = VrmRootExporter.GetSpringBoneColliderIDs(
+                physBone, allColliders, globalColliders);
+            Assert.That(result, Is.EqualTo(new List<gltf.ObjectID>
+            {
+                new(0), new(1),
+            }));
+
+            UnityEngine.Object.DestroyImmediate(root);
+        }
+
+        private static void SetGlobalColliderScope(VRCPhysBoneCollider collider, string scopeName)
+        {
+            var flagsMember = FindReflectedMember(collider.GetType(), "globalCollisionFlags");
+            if (flagsMember == null)
+            {
+                Assert.Ignore("This VRC SDK does not expose globalCollisionFlags.");
+            }
+
+            var flagsType = flagsMember is System.Reflection.FieldInfo field
+                ? field.FieldType
+                : ((System.Reflection.PropertyInfo)flagsMember).PropertyType;
+            if (!flagsType.IsEnum)
+            {
+                Assert.Ignore("Global Collision scope is not represented by an enum in this SDK.");
+            }
+
+            var scopeValue = FindScopeEnumValue(flagsType, scopeName);
+            if (scopeValue == null)
+            {
+                Assert.Ignore($"This VRC SDK does not expose the '{scopeName}' Global Collision scope.");
+            }
+
+            Assert.That(TrySetReflectedMember(collider, "globalCollisionFlags", scopeValue), Is.True);
+
+            // Some SDK revisions expose this as a writable boolean; others derive it from the flags.
+            TrySetReflectedMember(collider, "isGlobalCollider", true);
+        }
+
+        private static object? FindScopeEnumValue(System.Type enumType, string scopeName)
+        {
+            foreach (var name in System.Enum.GetNames(enumType))
+            {
+                if (name.IndexOf(scopeName, System.StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    name.IndexOf("Other", System.StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    return System.Enum.Parse(enumType, name);
+                }
+            }
+
+            return null;
+        }
+
+        private static System.Reflection.MemberInfo? FindReflectedMember(System.Type type, string name)
+        {
+            const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+            for (var current = type; current != null; current = current.BaseType)
+            {
+                var field = current.GetField(name, flags | System.Reflection.BindingFlags.DeclaredOnly);
+                if (field != null)
+                {
+                    return field;
+                }
+
+                var property = current.GetProperty(name, flags | System.Reflection.BindingFlags.DeclaredOnly);
+                if (property != null)
+                {
+                    return property;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool TrySetReflectedMember(object target, string name, object value)
+        {
+            var member = FindReflectedMember(target.GetType(), name);
+            switch (member)
+            {
+                case System.Reflection.FieldInfo field:
+                    field.SetValue(target, value);
+                    return true;
+                case System.Reflection.PropertyInfo property when property.GetSetMethod(true) != null:
+                    property.SetValue(target, value);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        [Test]
         public void ExportPhysBoneMultiple()
         {
             var root = CreateRootGameObject();

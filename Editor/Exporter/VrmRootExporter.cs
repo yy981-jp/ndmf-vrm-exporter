@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Reflection;
 using nadena.dev.ndmf;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
@@ -132,6 +133,7 @@ namespace com.github.hkrn
 
 #if NVE_HAS_VRCHAT_AVATAR_SDK
             IList<VRCPhysBoneColliderBase> pbColliders = new List<VRCPhysBoneColliderBase>();
+            IList<VRCPhysBoneColliderBase> globalPbColliders = new List<VRCPhysBoneColliderBase>();
             foreach (var (transform, _) in _transformNodeIDs)
             {
                 if (!transform.gameObject.activeInHierarchy ||
@@ -144,11 +146,22 @@ namespace com.github.hkrn
                 var innerColliders = transform.GetComponents<VRCPhysBoneCollider>();
                 foreach (var innerCollider in innerColliders!)
                 {
-                    ConvertBoneCollider(innerCollider, ref pbColliders, ref colliders);
+                    if (!ConvertBoneCollider(innerCollider, ref pbColliders, ref colliders))
+                    {
+                        continue;
+                    }
+
+#if NVE_HAS_GLOBAL_PHYSBONE_COLLISION
+                    if (IsAvatarGlobalCollider(innerCollider))
+                    {
+                        globalPbColliders.Add(innerCollider);
+                    }
+#endif // NVE_HAS_GLOBAL_PHYSBONE_COLLISION
                 }
             }
 
             var immutablePbColliders = ImmutableList.CreateRange(pbColliders);
+            var immutableGlobalPbColliders = ImmutableList.CreateRange(globalPbColliders);
             var colliderGroupIDs = new Dictionary<VRCPhysBone, gltf.ObjectID>();
             foreach (var (transform, _) in _transformNodeIDs)
             {
@@ -162,7 +175,8 @@ namespace com.github.hkrn
                 var bones = transform.GetComponents<VRCPhysBone>();
                 foreach (var bone in bones!)
                 {
-                    var colliderGroupID = ConvertColliderGroup(bone, immutablePbColliders, ref colliderGroups);
+                    var colliderGroupID = ConvertColliderGroup(
+                        bone, immutablePbColliders, immutableGlobalPbColliders, ref colliderGroups);
                     if (colliderGroupID.HasValue)
                     {
                         colliderGroupIDs.Add(bone, colliderGroupID.Value);
@@ -1350,7 +1364,7 @@ namespace com.github.hkrn
         }
 
 #if NVE_HAS_VRCHAT_AVATAR_SDK
-        private void ConvertBoneCollider(VRCPhysBoneCollider collider,
+        private bool ConvertBoneCollider(VRCPhysBoneCollider collider,
             ref IList<VRCPhysBoneColliderBase> pbColliders,
             ref IList<vrm.sb.Collider> colliders)
         {
@@ -1359,7 +1373,7 @@ namespace com.github.hkrn
             if (!nodeID.HasValue)
             {
                 Debug.LogWarning($"Collider root transform {rootTransform} not found due to inactive");
-                return;
+                return false;
             }
 
             switch (collider.shapeType)
@@ -1495,17 +1509,15 @@ namespace com.github.hkrn
             }
 
             pbColliders.Add(collider);
+            return true;
         }
 
         private static gltf.ObjectID? ConvertColliderGroup(VRCPhysBone pb,
             IImmutableList<VRCPhysBoneColliderBase> pbColliders,
+            IImmutableList<VRCPhysBoneColliderBase> globalPbColliders,
             ref IList<vrm.sb.ColliderGroup> colliderGroups)
         {
-            var colliders = (from collider in pb.colliders
-                select pbColliders.IndexOf(collider)
-                into index
-                where index != -1
-                select new gltf.ObjectID((uint)index)).ToList();
+            var colliders = GetSpringBoneColliderIDs(pb, pbColliders, globalPbColliders);
             if (colliders.Count <= 0)
                 return null;
 
@@ -1518,6 +1530,188 @@ namespace com.github.hkrn
             colliderGroups.Add(colliderGroup);
             return colliderGroupID;
         }
+
+        internal static IList<gltf.ObjectID> GetSpringBoneColliderIDs(
+            VRCPhysBone pb,
+            IImmutableList<VRCPhysBoneColliderBase> pbColliders,
+            IImmutableList<VRCPhysBoneColliderBase> globalPbColliders)
+        {
+            var colliderIDs = new List<gltf.ObjectID>();
+            var addedIndices = new HashSet<int>();
+
+            foreach (var collider in pb.colliders)
+            {
+                AddColliderID(collider, pbColliders, addedIndices, colliderIDs);
+            }
+
+#if NVE_HAS_GLOBAL_PHYSBONE_COLLISION
+            if (globalPbColliders.Count > 0 && AllowsSelfGlobalCollision(pb))
+            {
+                foreach (var collider in globalPbColliders)
+                {
+                    AddColliderID(collider, pbColliders, addedIndices, colliderIDs);
+                }
+            }
+#endif // NVE_HAS_GLOBAL_PHYSBONE_COLLISION
+
+            return colliderIDs;
+        }
+
+        private static void AddColliderID(
+            VRCPhysBoneColliderBase collider,
+            IImmutableList<VRCPhysBoneColliderBase> pbColliders,
+            ISet<int> addedIndices,
+            IList<gltf.ObjectID> colliderIDs)
+        {
+            var index = pbColliders.IndexOf(collider);
+            if (index >= 0 && addedIndices.Add(index))
+            {
+                colliderIDs.Add(new gltf.ObjectID((uint)index));
+            }
+        }
+
+#if NVE_HAS_GLOBAL_PHYSBONE_COLLISION
+        internal static bool IsAvatarGlobalCollider(VRCPhysBoneColliderBase collider)
+        {
+            if (collider is not VRCPhysBoneCollider vrcCollider ||
+                (vrcCollider.shapeType != VRCPhysBoneColliderBase.ShapeType.Sphere &&
+                 vrcCollider.shapeType != VRCPhysBoneColliderBase.ShapeType.Capsule))
+            {
+                return false;
+            }
+
+            if (TryGetMemberValue(vrcCollider, "isGlobalCollider", out var isGlobal)
+                && isGlobal is bool enabled && !enabled)
+            {
+                return false;
+            }
+
+            return TryGetMemberValue(vrcCollider, "globalCollisionFlags", out var flags)
+                && flags != null
+                && HasAvatarFlag(flags);
+        }
+
+        internal static bool AllowsSelfGlobalCollision(VRCPhysBone pb)
+        {
+            if (!TryGetMemberValue(pb, "allowCollision", out var allowCollision) ||
+                allowCollision == null)
+            {
+                return false;
+            }
+
+            var allowMode = allowCollision.ToString();
+            if (string.Equals(allowMode, "True", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!string.Equals(allowMode, "Other", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!TryGetMemberValue(pb, "collisionFilter", out var filter) ||
+                filter == null ||
+                !TryGetMemberValue(filter, "allowSelf", out var allowSelf) ||
+                allowSelf is not bool { } selfAllowed ||
+                !selfAllowed)
+            {
+                return false;
+            }
+
+            return TryGetMemberValue(filter, "contentTypes", out var contentTypes)
+                && contentTypes != null
+                && HasAvatarFlag(contentTypes);
+        }
+
+        private static bool HasAvatarFlag(object value)
+        {
+            var enumType = value.GetType();
+            if (!enumType.IsEnum)
+            {
+                return false;
+            }
+
+            long valueBits;
+            try
+            {
+                valueBits = Convert.ToInt64(value);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+
+            foreach (var name in Enum.GetNames(enumType))
+            {
+                var normalized = name.Replace("_", string.Empty);
+                var isAvatar = normalized.IndexOf("Avatar", StringComparison.OrdinalIgnoreCase) >= 0
+                    && normalized.IndexOf("Other", StringComparison.OrdinalIgnoreCase) < 0;
+                var isSelf = string.Equals(normalized, "Self", StringComparison.OrdinalIgnoreCase);
+                var isEverything = string.Equals(normalized, "Everything", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(normalized, "All", StringComparison.OrdinalIgnoreCase);
+                if (!isAvatar && !isSelf && !isEverything)
+                {
+                    continue;
+                }
+
+                long flagBits;
+                try
+                {
+                    flagBits = Convert.ToInt64(Enum.Parse(enumType, name));
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+
+                if (flagBits == 0)
+                {
+                    continue;
+                }
+
+                if ((valueBits & flagBits) == flagBits)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryGetMemberValue(object target, string name, out object? value)
+        {
+            for (var type = target.GetType(); type != null; type = type.BaseType)
+            {
+                const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                var field = type.GetField(name, flags | BindingFlags.DeclaredOnly);
+                if (field != null)
+                {
+                    value = field.GetValue(target);
+                    return true;
+                }
+
+                var property = type.GetProperty(name, flags | BindingFlags.DeclaredOnly);
+                if (property != null && property.GetIndexParameters().Length == 0 &&
+                    property.GetGetMethod(true) != null)
+                {
+                    try
+                    {
+                        value = property.GetValue(target);
+                        return true;
+                    }
+                    catch (Exception)
+                    {
+                        value = null;
+                        return false;
+                    }
+                }
+            }
+
+            value = null;
+            return false;
+        }
+#endif // NVE_HAS_GLOBAL_PHYSBONE_COLLISION
 
         internal static IList<gltf.ObjectID> GetSpringBoneColliderGroups(VRCPhysBone pb,
             IReadOnlyDictionary<VRCPhysBone, gltf.ObjectID> colliderGroupIDs)
