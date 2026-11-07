@@ -1934,6 +1934,7 @@ namespace com.github.hkrn
                 Is.Empty);
         }
 
+#if NVE_HAS_GLOBAL_PHYSBONE_COLLISION
         [Test]
         public void ExportPhysBoneGlobalColliderRequiresAvatarScope()
         {
@@ -1961,8 +1962,8 @@ namespace com.github.hkrn
             var physBoneObject = new GameObject { transform = { parent = root.transform } };
             var physBone = physBoneObject.AddComponent<VRCPhysBone>();
 
-            Assert.That(VrmRootExporter.AllowsSelfGlobalCollision(physBone), Is.True,
-                "The default Allow Collision mode should permit global colliders.");
+            physBone.allowCollision = VRCPhysBoneBase.AdvancedBool.True;
+            Assert.That(VrmRootExporter.AllowsSelfGlobalCollision(physBone), Is.True);
 
             physBone.allowCollision = VRCPhysBoneBase.AdvancedBool.False;
             Assert.That(VrmRootExporter.AllowsSelfGlobalCollision(physBone), Is.False);
@@ -2061,7 +2062,7 @@ namespace com.github.hkrn
             TrySetReflectedMember(collider, "isGlobalCollider", true);
         }
 
-        private static object? FindScopeEnumValue(System.Type enumType, string scopeName)
+        private static object FindScopeEnumValue(System.Type enumType, string scopeName)
         {
             foreach (var name in System.Enum.GetNames(enumType))
             {
@@ -2072,10 +2073,11 @@ namespace com.github.hkrn
                 }
             }
 
+            Assert.Fail($"This VRC SDK does not expose the '{scopeName}' Global Collision scope.");
             return null;
         }
 
-        private static System.Reflection.MemberInfo? FindReflectedMember(System.Type type, string name)
+        private static System.Reflection.MemberInfo FindReflectedMember(System.Type type, string name)
         {
             const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance |
                 System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
@@ -2112,6 +2114,7 @@ namespace com.github.hkrn
                     return false;
             }
         }
+#endif // NVE_HAS_GLOBAL_PHYSBONE_COLLISION
 
         [Test]
         public void ExportPhysBoneMultiple()

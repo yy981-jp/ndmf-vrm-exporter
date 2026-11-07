@@ -198,7 +198,9 @@ namespace com.github.hkrn
             {
                 Id = 0,
                 IsBaseline = true,
-                Scales = VrmRootExporter.SpringBoneForceScales.Default,
+                Scales = VrmRootExporter.SpringBoneForceScales.GetDefault(
+                    VRCPhysBoneBase.Version.Version_1_0,
+                    VRCPhysBoneBase.IntegrationType.Simplified),
             };
             var baselineMetrics = Evaluate(baseline, captures, output);
             results.Add(baselineMetrics);
@@ -746,14 +748,14 @@ namespace com.github.hkrn
 
         private static void WriteBest(string path, IReadOnlyList<Metrics> results)
         {
-            var settled = results.Where(item => item.SettlingTime >= 0.0f).ToList();
             var gridCandidates = results.Where(item => !item.Candidate.IsBaseline).ToList();
-            var settledGridCount = gridCandidates.Count(item => item.SettlingTime >= 0.0f);
+            var settledGridCandidates = gridCandidates.Where(item => item.SettlingTime >= 0.0f).ToList();
+            var settledGridCount = settledGridCandidates.Count;
             var baseline = results.FirstOrDefault(item => item.Candidate.IsBaseline);
-            var candidates = settled.Count > 0 ? settled : results.ToList();
+            var candidates = settledGridCandidates.Count > 0 ? settledGridCandidates : gridCandidates;
             var best = candidates.OrderBy(item => item.RmsError).First();
             var text = new StringBuilder();
-            text.AppendLine(settled.Count > 0
+            text.AppendLine(settledGridCandidates.Count > 0
                 ? $"Best settled candidate by RMS position error: {CandidateLabel(best.Candidate)}"
                 : $"No candidate met the terminal-pose tolerance; best RMS candidate: {CandidateLabel(best.Candidate)}");
             text.AppendLine($"Stiffness scale: {F(best.Candidate.Scales.Stiffness)}");

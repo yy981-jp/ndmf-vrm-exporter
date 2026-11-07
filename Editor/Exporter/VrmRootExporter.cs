@@ -1613,8 +1613,8 @@ namespace com.github.hkrn
             if (!TryGetMemberValue(pb, "collisionFilter", out var filter) ||
                 filter == null ||
                 !TryGetMemberValue(filter, "allowSelf", out var allowSelf) ||
-                allowSelf is not bool { } selfAllowed ||
-                !selfAllowed)
+                !(allowSelf is bool) ||
+                !(bool)allowSelf)
             {
                 return false;
             }

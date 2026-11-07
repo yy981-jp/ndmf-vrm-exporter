@@ -29,9 +29,9 @@ The test evaluates all combinations of the following scales:
 
 The full grid contains 64 candidates.
 
-The default production conversion uses Stiffness=4, Inertia=1, and Gravity=20. These are calibration scales, not constants prescribed by VRChat or the VRM specification. The default overload remains unchanged for normal exports.
+The production conversion uses Stiffness=8, Inertia=3, and Gravity=5 for PhysBone 1.0 / Simplified, based on the current multi-scenario grid search. PhysBone 1.0 / Advanced and PhysBone 1.1 retain the previous fallback scales (4, 1, 20) pending separate calibration. These are exporter calibration scales, not values prescribed by VRChat or the VRM specification.
 
-The production default is evaluated separately on every run as `baseline.csv`; it is also present as a matching grid point in the current lower-side sweep so the test can assert that both evaluation paths produce the same metrics. The summary identifies the separate evaluation row as `baseline`. Each run therefore evaluates 64 grid candidates plus one production baseline (65 evaluations total). Candidate IDs are local to one grid definition and must not be compared across different search ranges. The metadata records the number of grid candidates as `candidateCount` and the total number of evaluations as `evaluationCount`.
+The PhysBone 1.0 / Simplified production default is evaluated separately on every run as `baseline.csv`; it is also present as a matching grid point in the current lower-side sweep so the test can assert that both evaluation paths produce the same metrics. The summary identifies the separate evaluation row as `baseline`. Each run therefore evaluates 64 grid candidates plus one production baseline (65 evaluations total). Candidate IDs are local to one grid definition and must not be compared across different search ranges. The metadata records the number of grid candidates as `candidateCount` and the total number of evaluations as `evaluationCount`.
 
 ## Running
 
@@ -78,9 +78,9 @@ The per-scenario artifact from [GameCI Run 42197727655](https://github.com/yy981
 
 For the production baseline, lateral-roll measured 32.391 mm RMS / 188.942 mm maximum error, and vertical-forward-tilt measured 24.333 mm RMS / 122.635 mm maximum error; neither scenario settled.
 
-The previous short-chain best tuple (16, 3, 5) became candidate #022 in the longer-chain sweep and produced 0.015602 m RMS, 0.124242 m maximum error, and 0.333333 s settling. This is evidence that the best mapping depends on chain depth and motion scenario. The upper-side grid put the best stiffness and inertia values at their lower search bounds, so the current search axes have been shifted downward to Stiffness `[4, 8, 12, 16]` and Inertia `[1, 2, 3, 4]` for the next calibration pass. The production default remains unchanged.
+The previous short-chain best tuple (16, 3, 5) became candidate #022 in the longer-chain sweep and produced 0.015602 m RMS, 0.124242 m maximum error, and 0.333333 s settling. This is evidence that the best mapping depends on chain depth and motion scenario. The upper-side grid put the best stiffness and inertia values at their lower search bounds, so the current search axes were shifted downward to Stiffness `[4, 8, 12, 16]` and Inertia `[1, 2, 3, 4]`. In the resulting four-segment, two-scenario run (GameCI Run 42208638241), candidate #026 `(8, 3, 5)` achieved 0.003227 m RMS error, 0.024047 m maximum error, and 0.366667 s settling; 24 / 64 grid candidates settled. The former production baseline `(4, 1, 20)` measured 0.028647 m RMS error and 0.188942 m maximum error, and did not settle.
 
-Neither synthetic sweep alone is sufficient to change production defaults.
+Based on this result, `(8, 3, 5)` is now the provisional production default for PhysBone 1.0 / Simplified only. PhysBone 1.0 / Advanced and PhysBone 1.1 retain `(4, 1, 20)` until they receive separate calibration. The synthetic fixture does not establish universal equivalence; real-avatar, collider, scale, and independent-runtime validation remain necessary.
 
 The reference trajectory is captured from the VRC SDK PhysBone component running in Unity Play Mode. Candidate trajectories are produced with the non-normative VRMC_springBone 1.0 reference update procedure: Verlet integration, length constraint, then head-node rotation, processing each chain from root to descendant. This isolates the parameter mapping from differences between VRM runtime implementations, but it does not yet compare a complete exported VRM inside a specific VRM viewer.
 
