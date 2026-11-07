@@ -2176,45 +2176,45 @@ namespace com.github.hkrn
                             {
                                 Node = nodeId,
                                 HitRadius = 0,
-                                Stiffness = 0,
+                                Stiffness = 0.0f,
                                 DragForce = 1.0f,
-                                GravityPower = 0,
+                                GravityPower = 0.0f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 1),
                                 HitRadius = 0.25f,
-                                Stiffness = 0.25f,
+                                Stiffness = 0.5f,
                                 DragForce = 1,
-                                GravityPower = 0.25f,
+                                GravityPower = 0.0625f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 2),
                                 HitRadius = 0.5f,
-                                Stiffness = 0.5f,
+                                Stiffness = 1.0f,
                                 DragForce = 1,
-                                GravityPower = 0.5f,
+                                GravityPower = 0.125f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 3),
                                 HitRadius = 0.75f,
-                                Stiffness = 0.75f,
+                                Stiffness = 1.5f,
                                 DragForce = 1,
-                                GravityPower = 0.75f,
+                                GravityPower = 0.1875f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 4),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             }
                         }
@@ -2301,18 +2301,18 @@ namespace com.github.hkrn
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 1),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 2),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             }
                         }
@@ -2326,18 +2326,18 @@ namespace com.github.hkrn
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 3),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 4),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             }
                         }
@@ -2425,27 +2425,27 @@ namespace com.github.hkrn
                             {
                                 Node = new gltf.ObjectID(nodeId.ID),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 1),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 2),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             }
                         }
@@ -2459,18 +2459,18 @@ namespace com.github.hkrn
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 3),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             },
                             new()
                             {
                                 Node = new gltf.ObjectID(nodeId.ID + 4),
                                 HitRadius = 1,
-                                Stiffness = 1,
+                                Stiffness = 2.0f,
                                 DragForce = 1,
-                                GravityPower = 1,
+                                GravityPower = 0.25f,
                                 GravityDir = -System.Numerics.Vector3.UnitY
                             }
                         }
