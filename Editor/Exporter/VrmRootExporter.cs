@@ -2089,58 +2089,65 @@ namespace com.github.hkrn
                 centerNode = GetRequiredHumanBoneNodeID(animator, HumanBodyBones.Hips);
             }
 
-            var joints = transforms.Select(transform =>
+            var joints = new List<vrm.sb.Joint>();
+            var jointDepthRatios = new List<DepthRatio>();
+            foreach (var transform in transforms)
+            {
+                var nodeID = FindTransformNodeID(transform);
+                if (!nodeID.HasValue)
                 {
-                    var nodeID = FindTransformNodeID(transform);
-                    if (!nodeID.HasValue)
-                    {
-                        Debug.LogWarning($"Joint transform {transform} not found due to inactive");
-                        return null;
-                    }
+                    Debug.LogWarning($"Joint transform {transform} not found due to inactive");
+                    continue;
+                }
 
-                    var depthRatio = FindTransformDepth(transform, rootTransform);
-                    var gravity = EvaluateCurve(pb.gravityCurve, pb.gravity, depthRatio);
-                    var falloff = EvaluateCurve(pb.gravityFalloffCurve, pb.gravityFalloff, depthRatio);
-                    var stiffness = EvaluateCurve(pb.stiffnessCurve, pb.stiffness, depthRatio);
-                    var spring = EvaluateCurve(pb.springCurve, pb.spring, depthRatio);
-                    var hitRadius = EvaluateCurve(pb.radiusCurve, pb.radius, depthRatio);
-                    var pull = EvaluateCurve(pb.pullCurve, pb.pull, depthRatio);
-                    var forces = ConvertSpringBoneForces(
-                        pb.version,
-                        pb.integrationType,
-                        pull,
-                        spring,
-                        stiffness,
-                        gravity,
-                        falloff
-                    );
+                var depthRatio = FindTransformDepth(transform, rootTransform);
+                var gravity = EvaluateCurve(pb.gravityCurve, pb.gravity, depthRatio);
+                var falloff = EvaluateCurve(pb.gravityFalloffCurve, pb.gravityFalloff, depthRatio);
+                var stiffness = EvaluateCurve(pb.stiffnessCurve, pb.stiffness, depthRatio);
+                var spring = EvaluateCurve(pb.springCurve, pb.spring, depthRatio);
+                var hitRadius = EvaluateCurve(pb.radiusCurve, pb.radius, depthRatio);
+                var pull = EvaluateCurve(pb.pullCurve, pb.pull, depthRatio);
+                var forces = ConvertSpringBoneForces(
+                    pb.version,
+                    pb.integrationType,
+                    pull,
+                    spring,
+                    stiffness,
+                    gravity,
+                    falloff
+                );
 
-                    var joint = new vrm.sb.Joint
-                    {
-                        Node = nodeID.Value,
-                        HitRadius = hitRadius,
-                        Stiffness = forces.Stiffness,
-                        GravityPower = forces.GravityPower,
-                        GravityDir = forces.GravityDir,
-                        DragForce = forces.DragForce,
-                    };
-                    var limit = ConvertSpringLimit(pb, depthRatio);
-                    if (limit == null)
-                    {
-                        return joint;
-                    }
+                joints.Add(new vrm.sb.Joint
+                {
+                    Node = nodeID.Value,
+                    HitRadius = hitRadius,
+                    Stiffness = forces.Stiffness,
+                    GravityPower = forces.GravityPower,
+                    GravityDir = forces.GravityDir,
+                    DragForce = forces.DragForce,
+                });
+                jointDepthRatios.Add(depthRatio);
+            }
 
-                    joint.Extensions ??= new Dictionary<string, JToken>();
-                    joint.Extensions.Add(VrmcSpringBoneLimit, vrm.Document.SaveAsNode(new vrm.sb.SpringLimit
-                    {
-                        SpecVersion = "1.0-draft",
-                        Limit = limit,
-                    }));
-                    _extensionUsed.Add(VrmcSpringBoneLimit);
+            // VRMC_springBone_limit MUST NOT be written on the final joint,
+            // which is used only as the chain's tail node.
+            for (var i = 0; i + 1 < joints.Count; i++)
+            {
+                var limit = ConvertSpringLimit(pb, jointDepthRatios[i]);
+                if (limit == null)
+                {
+                    continue;
+                }
 
-                    return joint;
-                })
-                .ToList();
+                joints[i].Extensions ??= new Dictionary<string, JToken>();
+                joints[i].Extensions.Add(VrmcSpringBoneLimit, vrm.Document.SaveAsNode(new vrm.sb.SpringLimit
+                {
+                    SpecVersion = "1.0",
+                    Limit = limit,
+                }));
+                _extensionUsed.Add(VrmcSpringBoneLimit);
+            }
+
             var newColliderGroups = GetSpringBoneColliderGroups(pb, colliderGroupIDs);
 
             var spring = new vrm.sb.Spring
@@ -2148,7 +2155,7 @@ namespace com.github.hkrn
                 Name = new gltf.UnicodeString(name),
                 Center = centerNode,
                 ColliderGroups = newColliderGroups.Count > 0 ? newColliderGroups.ToList() : null,
-                Joints = joints.Where(joint => joint != null).Select(joint => joint!).ToList(),
+                Joints = joints,
             };
             springs.Add(spring);
         }
@@ -2164,7 +2171,7 @@ namespace com.github.hkrn
                     {
                         Cone = new vrm.sb.ConeLimit
                         {
-                            Angle = Mathf.Deg2Rad * EvaluateCurve(pb.maxAngleXCurve, pb.maxAngleX, depthRatio),
+                            Angle = Mathf.Max(0.0f, Mathf.Deg2Rad * EvaluateCurve(pb.maxAngleXCurve, pb.maxAngleX, depthRatio)),
                             Rotation = Quaternion.Euler(pb.limitRotation).ToQuaternionWithCoordinateSpace(),
                         }
                     };
@@ -2176,7 +2183,7 @@ namespace com.github.hkrn
                     {
                         Hinge = new vrm.sb.HingeLimit
                         {
-                            Angle = Mathf.Deg2Rad * EvaluateCurve(pb.maxAngleXCurve, pb.maxAngleX, depthRatio),
+                            Angle = Mathf.Max(0.0f, Mathf.Deg2Rad * EvaluateCurve(pb.maxAngleXCurve, pb.maxAngleX, depthRatio)),
                             Rotation = Quaternion.Euler(pb.limitRotation).ToQuaternionWithCoordinateSpace(),
                         }
                     };
@@ -2188,8 +2195,8 @@ namespace com.github.hkrn
                     {
                         Spherical = new vrm.sb.SphericalLimit
                         {
-                            Pitch = Mathf.Deg2Rad * EvaluateCurve(pb.maxAngleXCurve, pb.maxAngleX, depthRatio),
-                            Yaw = Mathf.Deg2Rad * EvaluateCurve(pb.maxAngleZCurve, pb.maxAngleZ, depthRatio),
+                            Pitch = Mathf.Max(0.0f, Mathf.Deg2Rad * EvaluateCurve(pb.maxAngleXCurve, pb.maxAngleX, depthRatio)),
+                            Yaw = Mathf.Max(0.0f, Mathf.Deg2Rad * EvaluateCurve(pb.maxAngleZCurve, pb.maxAngleZ, depthRatio)),
                             Rotation = Quaternion.Euler(pb.limitRotation).ToQuaternionWithCoordinateSpace(),
                         }
                     };

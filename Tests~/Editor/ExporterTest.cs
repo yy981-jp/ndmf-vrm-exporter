@@ -1859,7 +1859,16 @@ namespace com.github.hkrn
             physBone.maxAngleX = 30.0f;
             physBone.maxAngleZ = 45.0f;
             physBone.limitRotation = new Vector3(5.0f, 10.0f, 15.0f);
+            var springTail = new GameObject
+            {
+                name = "SpringTail",
+                transform =
+                {
+                    parent = springRoot.transform
+                }
+            };
             nodes.Add(springRoot.transform, new gltf.ObjectID(42));
+            nodes.Add(springTail.transform, new gltf.ObjectID(43));
 
             var extensionUsed = new HashSet<string>();
             var exporter = new VrmRootExporter(
@@ -1873,9 +1882,11 @@ namespace com.github.hkrn
             var springBone = exporter.ExportSpringBone();
             Assert.That(springBone.Springs, Is.Not.Null);
             Assert.That(springBone.Springs, Has.Count.EqualTo(1));
-            Assert.That(springBone.Springs![0].Joints, Has.Count.EqualTo(1));
+            Assert.That(springBone.Springs![0].Joints, Has.Count.EqualTo(2));
 
             var joint = springBone.Springs[0].Joints[0];
+            var tailJoint = springBone.Springs[0].Joints[1];
+            Assert.That(tailJoint.Extensions?.ContainsKey("VRMC_springBone_limit") ?? false, Is.False);
             Assert.That(joint.Extensions, Is.Not.Null);
             Assert.That(
                 joint.Extensions!.TryGetValue("VRMC_springBone_limit", out var extension),
@@ -1883,7 +1894,7 @@ namespace com.github.hkrn
             );
 
             var extensionJson = JObject.Parse(extension!.ToString());
-            Assert.That(extensionJson.Value<string>("specVersion"), Is.EqualTo("1.0-draft"));
+            Assert.That(extensionJson.Value<string>("specVersion"), Is.EqualTo("1.0"));
             var limit = extensionJson["limit"] as JObject;
             Assert.That(limit, Is.Not.Null);
             var shape = limit![expectedLimitType] as JObject;
